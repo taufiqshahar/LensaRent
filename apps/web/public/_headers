@@ -1,0 +1,10 @@
+# Security headers for every static asset (Cloudflare Workers Static Assets).
+# API responses set their own headers in apps/worker/src/lib/http.ts.
+# Fasa 1 will extend the CSP for Turnstile and Firebase Auth; Fasa 2 for CHIP.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

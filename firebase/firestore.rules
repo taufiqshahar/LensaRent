@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// LensaRent — Firestore Security Rules
+//
+// No browser or mobile client may read or write Firestore directly. Not customers, and
+// not admins either: the admin UI reads and writes through the Worker API
+// (/api/admin/*), which verifies the Firebase ID token and the `admin` custom claim.
+//
+// The Worker uses a service account, which bypasses these rules entirely. These rules
+// therefore protect against one thing only: a client talking to Firestore directly
+// with the public web config. The answer to that is always "no".
+//
+// Do not add an `allow` here without a decision recorded in docs/DECISIONS.md.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

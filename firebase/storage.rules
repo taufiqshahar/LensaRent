@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// LensaRent — Cloud Storage Security Rules
+//
+// Handover photos (handover/{bookingId}/...) are private. No client may read or write
+// the bucket directly; uploads and downloads go through the Worker, which issues
+// short-lived signed URLs. The Worker's service account bypasses these rules.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
