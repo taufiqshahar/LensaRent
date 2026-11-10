@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+  - firebase
+
+# pnpm 10 blocks dependency install scripts by default; allow only the ones the toolchain needs.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

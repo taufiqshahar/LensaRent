@@ -1,0 +1,29 @@
+{
+  "name": "lensarent",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @lensarent/web build && pnpm --filter @lensarent/worker dev",
+    "dev:emulators": "firebase emulators:start --config firebase/firebase.json --project demo-lensarent",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "pnpm test:unit && pnpm test:emulator",
+    "test:unit": "pnpm -r test:unit",
+    "test:emulator": "firebase emulators:exec --config firebase/firebase.json --project demo-lensarent --only firestore,storage \"pnpm -r test:integration\"",
+    "build": "pnpm --filter @lensarent/web build && pnpm --filter @lensarent/worker build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "firebase-tools": "^15.35.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}

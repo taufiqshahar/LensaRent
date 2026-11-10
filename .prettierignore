@@ -1,0 +1,7 @@
+node_modules
+dist
+coverage
+.wrangler
+pnpm-lock.yaml
+CLAUDE_CODE_MASTER_PROMPT.md
+**/__snapshots__

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+.wrangler/
+*.tsbuildinfo
+
+# Secrets — never commit. See apps/worker/.dev.vars.example.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+*service-account*.json
+*serviceAccount*.json
+
+# Firebase emulator / CLI
+.firebase/
+*-debug.log
+firebase-export-*/
+
+.DS_Store
