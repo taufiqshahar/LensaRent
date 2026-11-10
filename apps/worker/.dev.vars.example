@@ -1,0 +1,11 @@
+# Local development secrets for `wrangler dev`. Copy to `.dev.vars` (git-ignored).
+# Never commit real values. Deployed environments use `wrangler secret put <NAME> --env <env>`.
+
+# Point the Worker at the local Firebase Emulator Suite (pnpm dev:emulators).
+# Only allowed in development and test; the Worker refuses to start with it in staging/production.
+FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+
+# Full service-account JSON. Not needed while FIRESTORE_EMULATOR_HOST is set.
+# In this file the JSON must be wrapped in SINGLE quotes so its \n escapes survive:
+# FIREBASE_SERVICE_ACCOUNT='{"type":"service_account", ...}'
+FIREBASE_SERVICE_ACCOUNT=

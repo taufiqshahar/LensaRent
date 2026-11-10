@@ -1,0 +1,53 @@
+#:schema node_modules/wrangler/config-schema.json
+
+# One Worker serves the API (/api/*) and the static site built from apps/web.
+# Same origin for both, so there is no CORS surface at all.
+#
+# ALWAYS deploy with an explicit environment:
+#   wrangler deploy --env staging
+#   wrangler deploy --env production
+# The top-level config below is for local development only (`wrangler dev`).
+
+name = "lensarent"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "404-page"
+# Only /api/* invokes the Worker; everything else is served straight from static assets.
+run_worker_first = ["/api/*"]
+
+[observability]
+enabled = true
+
+[vars]
+ENVIRONMENT = "development"
+# "demo-" projects only ever talk to the Firebase Emulator Suite.
+FIREBASE_PROJECT_ID = "demo-lensarent"
+
+# ── Staging ─────────────────────────────────────────────────────────────────────────────
+[env.staging]
+name = "lensarent-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+# TODO(Fasa 1): replace with the real staging Firebase project id.
+FIREBASE_PROJECT_ID = "lensarent-staging"
+
+# ── Production ──────────────────────────────────────────────────────────────────────────
+[env.production]
+name = "lensarent-production"
+workers_dev = false
+
+[env.production.vars]
+ENVIRONMENT = "production"
+# TODO(Fasa 1): replace with the real production Firebase project id.
+FIREBASE_PROJECT_ID = "lensarent-production"
+
+# Secrets are never listed here. Set them per environment with:
+#   wrangler secret put FIREBASE_SERVICE_ACCOUNT --env staging
+# See .dev.vars.example for the full list.
