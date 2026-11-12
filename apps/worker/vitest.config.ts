@@ -9,11 +9,14 @@ export default defineConfig({
       main: "./src/index.ts",
       miniflare: {
         compatibilityDate: "2026-10-01",
+        // Tests build their bindings with TEST_ENV (test/helpers.ts) and call the app directly;
+        // these only matter for code that reads the Worker's own env.
         bindings: {
           ENVIRONMENT: "test",
           FIREBASE_PROJECT_ID: "demo-lensarent",
-          // Fixed port from firebase/firebase.json; integration tests need `pnpm test:emulator`.
+          // Fixed ports from firebase/firebase.json; integration tests need `pnpm test:emulator`.
           FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080",
+          FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
         },
       },
     }),

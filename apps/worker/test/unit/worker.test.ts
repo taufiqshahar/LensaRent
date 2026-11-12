@@ -4,19 +4,13 @@ import type { AppConfig, Env } from "../../src/lib/env";
 import { API_SECURITY_HEADERS, jsonResponse } from "../../src/lib/http";
 import { createLogger } from "../../src/lib/logger";
 import { createRouter } from "../../src/router";
-import { EMULATOR_HOST, TEST_PROJECT_ID } from "../helpers";
+import { createServices } from "../../src/services";
+import { TEST_ENV, testConfig } from "../helpers";
 
-const env: Env = {
-  ENVIRONMENT: "test",
-  FIREBASE_PROJECT_ID: TEST_PROJECT_ID,
-  FIRESTORE_EMULATOR_HOST: EMULATOR_HOST,
-};
+const env: Env = TEST_ENV;
 
 function call(path: string, init?: RequestInit, bindings: Env = env): Promise<Response> {
-  return worker.fetch(
-    new Request(`https://lensarent.test${path}`, init) as Parameters<typeof worker.fetch>[0],
-    bindings,
-  );
+  return worker.fetch(new Request(`https://lensarent.test${path}`, init), bindings);
 }
 
 afterEach(() => {
@@ -108,12 +102,8 @@ describe("failures", () => {
 });
 
 describe("createRouter", () => {
-  const config: AppConfig = {
-    environment: "test",
-    firebaseProjectId: TEST_PROJECT_ID,
-    serviceAccountJson: undefined,
-    firestoreEmulatorHost: EMULATOR_HOST,
-  };
+  const config: AppConfig = testConfig();
+  const services = createServices(config, {});
   const logger = createLogger({ environment: "test", sink: () => undefined });
   const router = createRouter([
     {
@@ -136,6 +126,7 @@ describe("createRouter", () => {
       new Request("https://lensarent.test/api/things/abc123?q=x"),
       config,
       logger,
+      services,
     );
     expect(await response.json()).toEqual({ id: "abc123", q: "x" });
   });
@@ -145,6 +136,7 @@ describe("createRouter", () => {
       new Request("https://lensarent.test/api/things/abc123", { method: "DELETE" }),
       config,
       logger,
+      services,
     );
     expect(response.status).toBe(405);
     expect(response.headers.get("Allow")).toBe("GET, PUT");
@@ -156,6 +148,7 @@ describe("createRouter", () => {
         new Request("https://lensarent.test/api/boom", { method: "POST" }),
         config,
         logger,
+        services,
       ),
     ).rejects.toThrow("boom");
   });

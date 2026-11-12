@@ -14,8 +14,9 @@
     "format": "prettier --write .",
     "test": "pnpm test:unit && pnpm test:emulator",
     "test:unit": "pnpm -r test:unit",
-    "test:emulator": "firebase emulators:exec --config firebase/firebase.json --project demo-lensarent --only firestore,storage \"pnpm -r test:integration\"",
-    "build": "pnpm --filter @lensarent/web build && pnpm --filter @lensarent/worker build"
+    "test:emulator": "firebase emulators:exec --config firebase/firebase.json --project demo-lensarent --only firestore,storage,auth \"pnpm -r test:integration\"",
+    "build": "pnpm --filter @lensarent/web build && pnpm --filter @lensarent/worker build",
+    "grant-admin": "node scripts/grant-admin.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

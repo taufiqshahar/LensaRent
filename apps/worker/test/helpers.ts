@@ -1,8 +1,36 @@
+import type { AppConfig, Env } from "../src/lib/env";
 import { Firestore } from "../src/lib/firestore";
 import { EmulatorTokenProvider } from "../src/lib/googleAuth";
 
 export const TEST_PROJECT_ID = "demo-lensarent";
 export const EMULATOR_HOST = "127.0.0.1:8080";
+export const AUTH_EMULATOR_HOST = "127.0.0.1:9099";
+
+/** Complete, valid bindings for tests. Values are obvious placeholders, never real secrets. */
+export const TEST_ENV: Env = {
+  ENVIRONMENT: "test",
+  FIREBASE_PROJECT_ID: TEST_PROJECT_ID,
+  FIREBASE_API_KEY: "demo-api-key",
+  TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+  PHONE_HASH_PEPPER: "test-pepper-test-pepper-test-pepper",
+  FIRESTORE_EMULATOR_HOST: EMULATOR_HOST,
+  FIREBASE_AUTH_EMULATOR_HOST: AUTH_EMULATOR_HOST,
+};
+
+export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    environment: "test",
+    deployed: false,
+    firebaseProjectId: TEST_PROJECT_ID,
+    serviceAccountJson: undefined,
+    firebaseApiKey: "demo-api-key",
+    turnstileSecretKey: "test-turnstile-secret",
+    phoneHashPepper: "test-pepper-test-pepper-test-pepper",
+    firestoreEmulatorHost: EMULATOR_HOST,
+    authEmulatorHost: AUTH_EMULATOR_HOST,
+    ...overrides,
+  };
+}
 
 /** A client for the local Firestore emulator (start it with `pnpm test:emulator`). */
 export function emulatorDb(): Firestore {

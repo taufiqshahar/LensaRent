@@ -33,6 +33,8 @@ const COLLECTIONS = [
   "receiptCounters",
   "leads",
   "auditLogs",
+  "adminSessions",
+  "rateLimits",
   "anythingElse",
 ] as const;
 

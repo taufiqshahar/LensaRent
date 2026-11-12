@@ -5,7 +5,13 @@ import type {
   FirestoreFields,
   FirestoreValue,
 } from "./firestoreValues";
-import { decodeFields, encodeDocument, encodeValue, fieldPathSegment } from "./firestoreValues";
+import {
+  decodeFields,
+  decodeValue,
+  encodeDocument,
+  encodeValue,
+  fieldPathSegment,
+} from "./firestoreValues";
 import type { AccessTokenProvider } from "./googleAuth";
 import {
   EmulatorTokenProvider,
@@ -120,6 +126,35 @@ export function updateDoc(
   return { kind: "set", path, data, merge: true, precondition };
 }
 
+/**
+ * Creates the document if it is missing, otherwise changes only the given fields. Use with
+ * `increment()` for counters: the new value comes back in the commit's `transformResults`.
+ */
+export function upsertDoc(path: string, data: DocumentData): Write {
+  return { kind: "set", path, data, merge: true };
+}
+
+/** Result of one write in a commit, in the order the writes were given. */
+export interface WriteResult {
+  updateTime: string | undefined;
+  /** Values produced by server-side transforms, in the order the transforms appear. */
+  transformResults: unknown[];
+}
+
+const AUTO_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+/** A random 20-character document id, the same shape Firestore generates. */
+export function newDocumentId(): string {
+  // 248 is the largest multiple of 62 below 256; rejecting bytes above it keeps ids uniform.
+  const id: string[] = [];
+  while (id.length < 20) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(32))) {
+      if (byte < 248 && id.length < 20) id.push(AUTO_ID_ALPHABET.charAt(byte % 62));
+    }
+  }
+  return id.join("");
+}
+
 export function deleteDoc(path: string, precondition?: Precondition): Write {
   return precondition ? { kind: "delete", path, precondition } : { kind: "delete", path };
 }
@@ -220,15 +255,23 @@ export class Firestore {
    * documents, and that nothing was applied. It says nothing about the preconditions, so
    * the commit is simply sent again; the caller then gets a definite answer.
    */
-  async commit(writes: readonly Write[], options: { maxAttempts?: number } = {}): Promise<void> {
-    if (writes.length === 0) return;
+  async commit(
+    writes: readonly Write[],
+    options: { maxAttempts?: number } = {},
+  ): Promise<WriteResult[]> {
+    if (writes.length === 0) return [];
     const body = { writes: writes.map((write) => this.#toRestWrite(write)) };
     const maxAttempts = options.maxAttempts ?? 4;
 
     for (let attempt = 1; ; attempt++) {
       try {
-        await this.#post(":commit", body);
-        return;
+        const response = (await this.#post(":commit", body)) as {
+          writeResults?: { updateTime?: string; transformResults?: FirestoreValue[] }[];
+        };
+        return (response.writeResults ?? []).map((result) => ({
+          updateTime: result.updateTime,
+          transformResults: (result.transformResults ?? []).map(decodeValue),
+        }));
       } catch (error) {
         if (!isFirestoreError(error, "ABORTED") || attempt >= maxAttempts) throw error;
         await sleep(Math.random() * 25 * 2 ** attempt);

@@ -29,9 +29,21 @@ ENVIRONMENT = "development"
 # "demo-" projects only ever talk to the Firebase Emulator Suite.
 FIREBASE_PROJECT_ID = "demo-lensarent"
 
+# Burst guard per IP (ADR-007). Business limits live in Firestore (src/lib/rateLimit.ts).
+# Rate limit bindings are NOT inherited by environments: each env declares its own.
+[[ratelimits]]
+name = "RL_BURST"
+namespace_id = "1000"
+simple = { limit = 20, period = 60 }
+
 # ── Staging ─────────────────────────────────────────────────────────────────────────────
 [env.staging]
 name = "lensarent-staging"
+
+[[env.staging.ratelimits]]
+name = "RL_BURST"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
@@ -44,11 +56,19 @@ name = "lensarent-production"
 workers_dev = false
 # TODO(Fasa 1): add the custom domain route once {{DOMAIN}} is confirmed.
 
+[[env.production.ratelimits]]
+name = "RL_BURST"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
 [env.production.vars]
 ENVIRONMENT = "production"
 # TODO(Fasa 1): replace with the real production Firebase project id.
 FIREBASE_PROJECT_ID = "lensarent-production"
 
-# Secrets are never listed here. Set them per environment with:
+# Secrets are never listed here. Set each one per environment:
 #   wrangler secret put FIREBASE_SERVICE_ACCOUNT --env staging
-# See .dev.vars.example for the full list.
+#   wrangler secret put FIREBASE_API_KEY --env staging
+#   wrangler secret put TURNSTILE_SECRET_KEY --env staging
+#   wrangler secret put PHONE_HASH_PEPPER --env staging
+# See .dev.vars.example and docs/DEPLOYMENT_AND_BACKUP.md.

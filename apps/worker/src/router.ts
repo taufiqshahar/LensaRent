@@ -1,6 +1,7 @@
 import type { AppConfig } from "./lib/env";
 import { errorResponse, jsonResponse } from "./lib/http";
 import type { Logger } from "./lib/logger";
+import type { Services } from "./services";
 
 export interface RequestContext {
   request: Request;
@@ -8,6 +9,7 @@ export interface RequestContext {
   params: Readonly<Record<string, string | undefined>>;
   config: AppConfig;
   logger: Logger;
+  services: Services;
 }
 
 export type Handler = (context: RequestContext) => Response | Promise<Response>;
@@ -24,7 +26,12 @@ interface CompiledRoute extends Route {
 }
 
 export interface Router {
-  handle(request: Request, config: AppConfig, logger: Logger): Promise<Response>;
+  handle(
+    request: Request,
+    config: AppConfig,
+    logger: Logger,
+    services: Services,
+  ): Promise<Response>;
 }
 
 export function createRouter(routes: readonly Route[]): Router {
@@ -34,7 +41,7 @@ export function createRouter(routes: readonly Route[]): Router {
   }));
 
   return {
-    async handle(request, config, logger) {
+    async handle(request, config, logger, services) {
       const url = new URL(request.url);
       const matches = compiled.flatMap((route) => {
         const match = route.pattern.exec({ pathname: url.pathname });
@@ -49,7 +56,14 @@ export function createRouter(routes: readonly Route[]): Router {
         return errorResponse("METHOD_NOT_ALLOWED", { Allow: allow });
       }
 
-      return found.route.handler({ request, url, params: found.params, config, logger });
+      return found.route.handler({
+        request,
+        url,
+        params: found.params,
+        config,
+        logger,
+        services,
+      });
     },
   };
 }

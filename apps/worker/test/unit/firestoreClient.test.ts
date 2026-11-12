@@ -9,7 +9,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "../../src/lib/firestore";
-import { generateTestServiceAccountKey } from "../helpers";
+import { generateTestServiceAccountKey, testConfig } from "../helpers";
 
 const tokenProvider = { getToken: () => Promise.resolve("access-token") };
 
@@ -187,7 +187,7 @@ describe("Firestore error mapping", () => {
 });
 
 describe("createFirestore", () => {
-  const base = { environment: "test", firebaseProjectId: "demo-lensarent" } as const;
+  const base = testConfig();
 
   it("uses the emulator when a host is configured", () => {
     expect(
