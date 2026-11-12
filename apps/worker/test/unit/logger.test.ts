@@ -17,7 +17,7 @@ const PLANTED = [
   "ya29.super-secret-access-token",
   "Jalan Besar",
   "Pelanggan minta slot awal",
-  "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+  "FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE",
 ];
 
 function capture(environment = "production") {
@@ -56,7 +56,7 @@ describe("logger redaction", () => {
         "Hubungi ahmad@example.com atau 017-491 3169 / 0174913169 / wa.me/60174913169, " +
         "token eyJhbGciOiJ9.eyJzdWIiOiJ9.c2lnbg, " +
         "Bearer ya29.super-secret-access-token, " +
-        `kunci ${fakePem("PRIVATE KEY", "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC").trimEnd()}`,
+        `kunci ${fakePem("PRIVATE KEY", "FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE").trimEnd()}`,
     });
 
     expect(lines).toHaveLength(1);
