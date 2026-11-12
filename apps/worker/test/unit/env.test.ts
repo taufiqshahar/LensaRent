@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Env } from "../../src/lib/env";
 import { ConfigError, loadConfig } from "../../src/lib/env";
 
-const SERVICE_ACCOUNT = '{"private_key":"TOP-SECRET-KEY-MATERIAL"}';
+const SERVICE_ACCOUNT = '{"private_key":"SECRET-SECRET-SECRET"}';
 
 describe("loadConfig", () => {
   it("accepts local development against the emulator", () => {
@@ -120,6 +120,6 @@ describe("loadConfig", () => {
         return caught as Error;
       }
     })();
-    expect(error?.message).not.toContain("TOP-SECRET");
+    expect(error?.message).not.toContain("SECRET-SECRET");
   });
 });

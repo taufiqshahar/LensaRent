@@ -11,8 +11,8 @@ const PLANTED = [
   "60174913169",
   "ahmad@example.com",
   "1234",
-  "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4",
-  "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl",
+  "lookup-value-lookup-value-lookup-value-lookup-value",
+  "eyJhbGciOiJ9.eyJzdWIiOiJ9.c2lnbg",
   "ya29.super-secret-access-token",
   "Jalan Besar",
   "Pelanggan minta slot awal",
@@ -43,17 +43,17 @@ describe("logger redaction", () => {
       lockedDates: ["2026-12-26", "2026-12-27"],
       name: "Ahmad bin Ali",
       phoneE164: "+60174913169",
-      phoneHash: "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4",
+      phoneHash: "lookup-value-lookup-value-lookup-value-lookup-value",
       email: "ahmad@example.com",
       idLast4: "1234",
-      lookupToken: "Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4",
+      lookupToken: "lookup-value-lookup-value-lookup-value-lookup-value",
       notes: "Pelanggan minta slot awal",
       customerSnapshot: { name: "Ahmad bin Ali", phoneE164: "+60174913169" },
       consent: { termsVersion: "v1", ipHash: "abc", address: "Jalan Besar" },
       headers: { Authorization: "Bearer ya29.super-secret-access-token" },
       detail:
         "Hubungi ahmad@example.com atau 017-491 3169 / 0174913169 / wa.me/60174913169, " +
-        "token eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl, " +
+        "token eyJhbGciOiJ9.eyJzdWIiOiJ9.c2lnbg, " +
         "Bearer ya29.super-secret-access-token, " +
         "kunci -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----",
     });
