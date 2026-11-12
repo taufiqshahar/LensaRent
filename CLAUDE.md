@@ -9,17 +9,17 @@ for the owner's approval after each phase (master prompt §3).
 
 ## Commands
 
-| Task | Command |
-|---|---|
-| Install | `pnpm install` |
-| Typecheck | `pnpm typecheck` |
-| Lint + format check | `pnpm lint` (fix formatting: `pnpm format`) |
-| Unit tests | `pnpm test:unit` |
-| Emulator tests | `pnpm test:emulator` (starts and stops the emulators itself; needs Java) |
-| Everything | `pnpm test` |
-| Build | `pnpm build` (Vite build, then `wrangler deploy --dry-run`) |
-| Local dev | `pnpm dev:emulators` in one terminal, `pnpm dev` in another |
-| Deploy | `wrangler deploy --env staging` / `--env production` from `apps/worker` — always with `--env` |
+| Task                | Command                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| Install             | `pnpm install`                                                                                |
+| Typecheck           | `pnpm typecheck`                                                                              |
+| Lint + format check | `pnpm lint` (fix formatting: `pnpm format`)                                                   |
+| Unit tests          | `pnpm test:unit`                                                                              |
+| Emulator tests      | `pnpm test:emulator` (starts and stops the emulators itself; needs Java)                      |
+| Everything          | `pnpm test`                                                                                   |
+| Build               | `pnpm build` (Vite build, then `wrangler deploy --dry-run`)                                   |
+| Local dev           | `pnpm dev:emulators` in one terminal, `pnpm dev` in another                                   |
+| Deploy              | `wrangler deploy --env staging` / `--env production` from `apps/worker` — always with `--env` |
 
 Run one Worker test file: `pnpm --filter @lensarent/worker exec vitest run test/unit/logger.test.ts`.
 Worker integration tests need the emulators running (`pnpm dev:emulators`).

@@ -6,20 +6,20 @@ terpakai** — ia mencatat apa yang disahkan melalui percubaan sebenar.
 
 Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksana fasa kemudian
 
-| # | Keputusan | Status |
-|---|---|---|
-| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin` | ✅ |
-| 002 | Kunci slot: dokumen-per-hari dalam satu commit atomik | ✅ |
-| 003 | Bacaan admin melalui Worker; Security Rules deny-all | ✅ |
-| 004 | MFA admin | ⏳ |
-| 005 | Pelan Firebase & Cloudflare, anggaran kos | ⏳ |
-| 006 | Alat ujian dan versi yang dipin | ✅ |
-| 007 | Rate limiting dua lapis | 📌 Fasa 1 |
-| 008 | Satu Cron Trigger, agihan dalam kod | 📌 Fasa 2 |
-| 009 | Header keselamatan aset statik & rentetan BM pada masa build | ✅ |
-| 010 | Codec Firestore menolak nombor bukan integer | ✅ |
-| 011 | Cache token: nilai sahaja, tidak pernah promise | ✅ |
-| 012 | `ABORTED` sentiasa dicuba semula | ✅ |
+| #   | Keputusan                                                    | Status    |
+| --- | ------------------------------------------------------------ | --------- |
+| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin`  | ✅        |
+| 002 | Kunci slot: dokumen-per-hari dalam satu commit atomik        | ✅        |
+| 003 | Bacaan admin melalui Worker; Security Rules deny-all         | ✅        |
+| 004 | MFA admin                                                    | ⏳        |
+| 005 | Pelan Firebase & Cloudflare, anggaran kos                    | ⏳        |
+| 006 | Alat ujian dan versi yang dipin                              | ✅        |
+| 007 | Rate limiting dua lapis                                      | 📌 Fasa 1 |
+| 008 | Satu Cron Trigger, agihan dalam kod                          | 📌 Fasa 2 |
+| 009 | Header keselamatan aset statik & rentetan BM pada masa build | ✅        |
+| 010 | Codec Firestore menolak nombor bukan integer                 | ✅        |
+| 011 | Cache token: nilai sahaja, tidak pernah promise              | ✅        |
+| 012 | `ABORTED` sentiasa dicuba semula                             | ✅        |
 
 ---
 
@@ -32,11 +32,11 @@ token berumur sejam, dan cache token itu dalam memori isolate.
 
 **Bukti** (wrangler 4.160.0, workerd lokal, Firestore emulator, 10 Nov 2026):
 
-| Percubaan | Keputusan |
-|---|---|
-| `firebase-admin@14.5.0` dengan flag `nodejs_compat` | **Gagal ketika startup**: `Uncaught ReferenceError: __dirname is not defined` dalam `google-gax/build/src/grpc.js` |
-| Tandatangan JWT RS256 dengan `crypto.subtle` dalam workerd | Lulus; tandatangan disahkan semula oleh Node `crypto` |
-| `:commit`, `:batchGet`, `:runQuery`, `:beginTransaction`, `:rollback` | Semua berfungsi |
+| Percubaan                                                             | Keputusan                                                                                                          |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `firebase-admin@14.5.0` dengan flag `nodejs_compat`                   | **Gagal ketika startup**: `Uncaught ReferenceError: __dirname is not defined` dalam `google-gax/build/src/grpc.js` |
+| Tandatangan JWT RS256 dengan `crypto.subtle` dalam workerd            | Lulus; tandatangan disahkan semula oleh Node `crypto`                                                              |
+| `:commit`, `:batchGet`, `:runQuery`, `:beginTransaction`, `:rollback` | Semua berfungsi                                                                                                    |
 
 **Ditolak.** `firebase-admin` (tidak boleh dimuatkan langsung). Firebase client SDK dalam
 Worker (direka untuk pengguna akhir, tertakluk kepada Security Rules).
@@ -70,9 +70,9 @@ bersama-sama dokumen `bookings` dan `bookingEvents` tempahan itu.
 **Bukti.**
 
 - Dokumen discovery rasmi Firestore, `CommitRequest.writes`:
-  *"The writes to apply. Always executed atomically and in order."*
-  `Write.currentDocument`: *"The write will fail if this is set and not met by the target
-  document."*
+  _"The writes to apply. Always executed atomically and in order."_
+  `Write.currentDocument`: _"The write will fail if this is set and not met by the target
+  document."_
 - Ujian emulator: commit 3 hari + booking yang bertindih 1 hari dengan kunci sedia ada →
   `409 ALREADY_EXISTS`, **sifar tulisan separa** (tiada kunci, tiada booking).
 - Ujian perlumbaan (`apps/worker/test/integration/availabilityLocks.test.ts`): 20
@@ -81,14 +81,14 @@ bersama-sama dokumen `bookings` dan `bookingEvents` tempahan itu.
 
 **Perbandingan.**
 
-| | A: berjujukan + rollback | B: dokumen ringkasan | **C: satu commit atomik** |
-|---|---|---|---|
-| Atomicity | Tidak (best-effort) | Ya | **Ya** |
-| Kunci yatim jika Worker mati di tengah | Mungkin | Tidak | **Tidak** |
-| Dua permintaan berselang sama-sama gagal walaupun slot bebas | Mungkin | Tidak | **Tidak** |
-| Booking + kunci dalam satu operasi | Tidak | Perlu transaction | **Ya** |
-| Concurrency antara unit | Baik | Bersiri per unit | **Baik** |
-| Kod rollback | Perlu | Tiada | **Tiada** |
+|                                                              | A: berjujukan + rollback | B: dokumen ringkasan | **C: satu commit atomik** |
+| ------------------------------------------------------------ | ------------------------ | -------------------- | ------------------------- |
+| Atomicity                                                    | Tidak (best-effort)      | Ya                   | **Ya**                    |
+| Kunci yatim jika Worker mati di tengah                       | Mungkin                  | Tidak                | **Tidak**                 |
+| Dua permintaan berselang sama-sama gagal walaupun slot bebas | Mungkin                  | Tidak                | **Tidak**                 |
+| Booking + kunci dalam satu operasi                           | Tidak                    | Perlu transaction    | **Ya**                    |
+| Concurrency antara unit                                      | Baik                     | Bersiri per unit     | **Baik**                  |
+| Kod rollback                                                 | Perlu                    | Tiada                | **Tiada**                 |
 
 **Akibat.**
 
@@ -156,10 +156,10 @@ admin pun ditolak (`firebase/test/rules.test.ts`, 225 ujian).
 
 ## ADR-005 — Pelan & anggaran kos ⏳
 
-| Perkhidmatan | Fasa 1 (leads sahaja) | Fasa 2 (tempahan) |
-|---|---|---|
-| Firebase | **Spark** (percuma) mencukupi: Firestore + Auth | **Blaze** diperlukan |
-| Cloudflare Workers | Free mencukupi | **Paid (USD 5/bulan) disyorkan** |
+| Perkhidmatan       | Fasa 1 (leads sahaja)                           | Fasa 2 (tempahan)                |
+| ------------------ | ----------------------------------------------- | -------------------------------- |
+| Firebase           | **Spark** (percuma) mencukupi: Firestore + Auth | **Blaze** diperlukan             |
+| Cloudflare Workers | Free mencukupi                                  | **Paid (USD 5/bulan) disyorkan** |
 
 **Kenapa Blaze untuk Fasa 2.** Cloud Storage for Firebase kini memerlukan Blaze untuk
 bucket baharu, dan export Firestore terurus (backup harian) memerlukan billing. Pada skala
@@ -255,16 +255,16 @@ automatik (backoff berjitter), jadi pemanggil sentiasa mendapat jawapan muktamad
 
 ## Dependency & justifikasi
 
-| Pakej | Di mana | Sebab |
-|---|---|---|
-| `zod` | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0 |
-| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev) | TS strict, lint, format |
-| `vitest`, `@vitest/coverage-v8` | dev | Ujian + gate coverage |
-| `@cloudflare/vitest-plugin` | worker (dev) | Jalankan ujian dalam workerd |
-| `wrangler`, `@cloudflare/workers-types` | worker (dev) | Dev lokal, deploy, jenis runtime |
-| `vite` | web (dev) | Build laman statik |
-| `firebase-tools` | root (dev) | Emulator Suite, deploy rules |
-| `@firebase/rules-unit-testing`, `firebase` | firebase (dev) | Ujian Security Rules |
+| Pakej                                                                                           | Di mana        | Sebab                                                             |
+| ----------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------- |
+| `zod`                                                                                           | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0 |
+| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev)     | TS strict, lint, format                                           |
+| `vitest`, `@vitest/coverage-v8`                                                                 | dev            | Ujian + gate coverage                                             |
+| `@cloudflare/vitest-plugin`                                                                     | worker (dev)   | Jalankan ujian dalam workerd                                      |
+| `wrangler`, `@cloudflare/workers-types`                                                         | worker (dev)   | Dev lokal, deploy, jenis runtime                                  |
+| `vite`                                                                                          | web (dev)      | Build laman statik                                                |
+| `firebase-tools`                                                                                | root (dev)     | Emulator Suite, deploy rules                                      |
+| `@firebase/rules-unit-testing`, `firebase`                                                      | firebase (dev) | Ujian Security Rules                                              |
 
 Dirancang: `jose` (Fasa 1, sahkan ID token admin — kod kritikal keselamatan, guna pustaka
 teruji tanpa dependency), `firebase/auth` (Fasa 1, log masuk admin di browser).
@@ -276,13 +276,13 @@ had; jika perlu dikecilkan kemudian, `zod/mini` ialah pilihan.
 
 ## Sumber yang disahkan
 
-| Perkara | Sumber |
-|---|---|
-| Semantik `commit` / `Precondition` / `batchWrite` / `exportDocuments` | Dokumen discovery rasmi: `https://firestore.googleapis.com/$discovery/rest?version=v1` |
-| Konfigurasi static assets, `run_worker_first`, `ratelimits`, `triggers` | `node_modules/wrangler/config-schema.json` (wrangler 4.160.0) |
-| Sokongan fail `_headers` | Diuji di `wrangler dev` |
-| Keserasian `firebase-admin` | Percubaan langsung (ADR-001) |
-| Atomicity dan tingkah laku perlumbaan | Ujian emulator (ADR-002) |
+| Perkara                                                                 | Sumber                                                                                 |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Semantik `commit` / `Precondition` / `batchWrite` / `exportDocuments`   | Dokumen discovery rasmi: `https://firestore.googleapis.com/$discovery/rest?version=v1` |
+| Konfigurasi static assets, `run_worker_first`, `ratelimits`, `triggers` | `node_modules/wrangler/config-schema.json` (wrangler 4.160.0)                          |
+| Sokongan fail `_headers`                                                | Diuji di `wrangler dev`                                                                |
+| Keserasian `firebase-admin`                                             | Percubaan langsung (ADR-001)                                                           |
+| Atomicity dan tingkah laku perlumbaan                                   | Ujian emulator (ADR-002)                                                               |
 
 **Tidak dapat dibaca terus dalam sesi ini** (hos disekat polisi rangkaian):
 `developers.cloudflare.com`, `firebase.google.com`, `docs.chip-in.asia`. Fasa 0 tidak
@@ -302,7 +302,7 @@ Semua ini nilai dalam `settings/*` (boleh diubah tanpa deploy), ditanda `TO CONF
 3. **`holdMinutes`** — 15 minit (tiada nilai dalam master prompt).
 4. **Had caj lewat 24 jam** — RM69 (kadar 1 hari). Dengan RM15 × 4 blok = RM60, had ini
    tidak pernah tercapai pada nilai semasa.
-5. **Buffer peak** — 24 jam terpakai apabila *tarikh pemulangan* jatuh dalam `peakPeriods`.
+5. **Buffer peak** — 24 jam terpakai apabila _tarikh pemulangan_ jatuh dalam `peakPeriods`.
 6. **Yuran meetup** — yuran lokasi pickup + yuran lokasi pemulangan (kedua-duanya RM0
    sekarang).
 7. **Sempadan pembatalan** — `> 72 jam` refund penuh; `24–72 jam` inklusif; `< 24 jam`
