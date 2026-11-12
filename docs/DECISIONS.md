@@ -6,20 +6,24 @@ terpakai** — ia mencatat apa yang disahkan melalui percubaan sebenar.
 
 Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksana fasa kemudian
 
-| #   | Keputusan                                                    | Status    |
-| --- | ------------------------------------------------------------ | --------- |
-| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin`  | ✅        |
-| 002 | Kunci slot: dokumen-per-hari dalam satu commit atomik        | ✅        |
-| 003 | Bacaan admin melalui Worker; Security Rules deny-all         | ✅        |
-| 004 | MFA admin                                                    | ⏳        |
-| 005 | Pelan Firebase & Cloudflare, anggaran kos                    | ⏳        |
-| 006 | Alat ujian dan versi yang dipin                              | ✅        |
-| 007 | Rate limiting dua lapis                                      | 📌 Fasa 1 |
-| 008 | Satu Cron Trigger, agihan dalam kod                          | 📌 Fasa 2 |
-| 009 | Header keselamatan aset statik & rentetan BM pada masa build | ✅        |
-| 010 | Codec Firestore menolak nombor bukan integer                 | ✅        |
-| 011 | Cache token: nilai sahaja, tidak pernah promise              | ✅        |
-| 012 | `ABORTED` sentiasa dicuba semula                             | ✅        |
+| #   | Keputusan                                                     | Status    |
+| --- | ------------------------------------------------------------- | --------- |
+| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin`   | ✅        |
+| 002 | Kunci slot: dokumen-per-hari dalam satu commit atomik         | ✅        |
+| 003 | Bacaan admin melalui Worker; Security Rules deny-all          | ✅        |
+| 004 | MFA admin                                                     | ⏳        |
+| 005 | Pelan Firebase & Cloudflare, anggaran kos                     | ⏳        |
+| 006 | Alat ujian dan versi yang dipin                               | ✅        |
+| 007 | Rate limiting dua lapis                                       | ✅        |
+| 008 | Satu Cron Trigger, agihan dalam kod                           | 📌 Fasa 2 |
+| 009 | Header keselamatan aset statik                                | ✅        |
+| 010 | Codec Firestore menolak nombor bukan integer                  | ✅        |
+| 011 | Cache token: nilai sahaja, tidak pernah promise               | ✅        |
+| 012 | `ABORTED` sentiasa dicuba semula                              | ✅        |
+| 013 | Log masuk admin melalui Worker + sesi Worker sendiri          | ✅        |
+| 014 | Data lead: hash telefon & IP, persetujuan berversi            | ✅        |
+| 015 | Laman dijana pada masa build daripada settings; pengawal draf | ✅        |
+| 016 | `grant-admin` berjalan terus dengan Node                      | ✅        |
 
 ---
 
@@ -150,7 +154,22 @@ admin pun ditolak (`firebase/test/rules.test.ts`, 225 ujian).
 - Jika (a) ditolak, fallback (b): kata laluan kukuh, had percubaan log masuk di Worker,
   amaran email untuk log masuk dari IP baharu, sesi pendek.
 
-**Tindakan pemilik:** luluskan (a) atau pilih (b) sebelum Fasa 1 dilancarkan.
+**Kemas kini Fasa 1.** Mitigasi (b) yang tidak bergantung pada email **sudah dilaksana**:
+had cubaan log masuk (10 / 15 min per IP, 5 / 15 min per emel), sesi maksimum 8 jam dan
+tamat selepas 60 minit tidak aktif, audit setiap log masuk/keluar, dan kunci API Firebase
+yang tidak pernah sampai ke browser (ADR-013). Amaran emel log masuk dari IP baharu
+memerlukan outbox email (Fasa 2).
+
+**Pilihan (c), timbul daripada ADR-013 — cadangan saya sekarang.** Kerana Worker sendiri
+yang mengendalikan log masuk, ia boleh menguatkuasakan TOTP (RFC 6238, aplikasi
+Authenticator) selepas kata laluan, tanpa Identity Platform dan tanpa kos. Kira-kira
+50 baris Web Crypto + ujian; rahsia TOTP per admin disimpan sebagai Worker secret. Satu
+aliran, satu tempat untuk diaudit. Kelemahan: kod MFA kita sendiri (walaupun standard
+yang ringkas) berbanding perkhidmatan terurus.
+
+**Tindakan pemilik:** pilih (a) Identity Platform, (c) TOTP dalam Worker, atau kekal
+dengan mitigasi (b) buat sementara. Laman awam boleh dilancarkan tanpa keputusan ini;
+panel admin sebaiknya tidak.
 
 ---
 
@@ -193,14 +212,32 @@ production.
 
 ---
 
-## ADR-007 — Rate limiting dua lapis 📌 Fasa 1
+## ADR-007 — Rate limiting dua lapis
 
 Workers Rate Limiting binding hanya menyokong tempoh **10 atau 60 saat** (skema
 konfigurasi wrangler: `period: enum [10, 60]`). Had dalam §8 ("5 hold / 10 min",
 "10 lead / jam") tidak boleh dinyatakan dengan binding sahaja.
 
-**Keputusan.** (1) Binding untuk perlindungan burst per IP (60 s). (2) Kaunter
-tetingkap-tetap di Firestore untuk had bisnes (per IP-hash dan per `phoneHash`).
+**Keputusan.** (1) Binding `RL_BURST` (20 / 60 s per IP) sebagai barisan pertama yang
+murah. (2) Kaunter tetingkap-tetap di Firestore untuk had sebenar.
+
+**Pelaksanaan (Fasa 1).** `apps/worker/src/lib/rateLimit.ts`. Satu dokumen per kunci per
+tetingkap (`rateLimits/{rule}_{hash}_{window}`), dinaikkan dengan transform `increment`
+atomik; `commit` memulangkan nilai baharu, jadi satu semakan = satu round trip, satu
+tulisan. Medan `expiresAt` dibersihkan oleh polisi TTL Firestore
+(`firestore.indexes.json`). Kunci sentiasa hash (IP dan telefon tidak pernah menjadi ID
+dokumen).
+
+| Had                     | Nilai       |
+| ----------------------- | ----------- |
+| Lead per IP             | 10 / jam    |
+| Lead per nombor telefon | 3 / hari    |
+| Log masuk per IP        | 10 / 15 min |
+| Log masuk per emel      | 5 / 15 min  |
+
+Diuji termasuk penyerahan serentak (6 serentak untuk had 3 → tepat 3 lulus).
+Lead dikira hanya selepas Turnstile lulus, supaya bot tanpa token tidak menelan kos
+tulisan Firestore.
 
 ---
 
@@ -215,14 +252,15 @@ fungsi pure yang diuji.
 
 ---
 
-## ADR-009 — Header aset statik & rentetan BM pada masa build
+## ADR-009 — Header aset statik
 
 - Aset statik dihidang terus oleh Cloudflare tanpa melalui Worker, jadi header
   keselamatan mereka datang daripada `apps/web/public/_headers` (disahkan berfungsi di
   `wrangler dev`). Respons API menetapkan header sendiri (`lib/http.ts`).
-- HTML merujuk rentetan sebagai `{{t:key}}`; plugin Vite kecil menggantikannya daripada
-  `strings.bm.ts` semasa build. Halaman kekal statik (pantas, mesra SEO, berfungsi tanpa
-  JS) dan semua teks berada di satu tempat. Kunci tidak dikenali menggagalkan build.
+- `/admin/*` menggantikan CSP dengan versi lebih ketat (tiada Turnstile), `no-store` dan
+  `X-Robots-Tag: noindex` (sintaks `! Header` untuk menanggalkan header umum, disahkan di
+  `wrangler dev`). `/assets/*` di-cache selama setahun kerana nama fail ber-hash.
+- Mekanisme `{{t:key}}` Fasa 0 digantikan oleh ADR-015.
 
 ---
 
@@ -253,36 +291,129 @@ automatik (backoff berjitter), jadi pemanggil sentiasa mendapat jawapan muktamad
 
 ---
 
+## ADR-013 — Log masuk admin melalui Worker, dengan sesi Worker sendiri
+
+**Konteks.** Master prompt mencadangkan browser log masuk dengan Firebase Auth SDK dan
+menghantar ID token ke Worker pada setiap permintaan.
+
+**Keputusan.** Browser menghantar emel + kata laluan ke `POST /api/admin/session`. Worker
+memanggil Identity Toolkit `accounts:signInWithPassword`, mengesahkan ID token (RS256,
+JWKS Google, issuer, audience, expiry, `admin === true`) dengan `jose`, kemudian
+mengeluarkan **sesinya sendiri**: token rawak 256-bit dalam cookie `__Host-`,
+`HttpOnly`, `Secure`, `SameSite=Strict`. Firestore hanya menyimpan SHA-256 token itu
+(`adminSessions/{hash}`).
+
+**Kenapa.**
+
+- **Kunci API Firebase tidak pernah sampai ke browser.** Tiada orang lain boleh
+  menggunakannya untuk mendaftar akaun, jadi "signup awam dimatikan" benar-benar
+  dikuatkuasakan, bukan sekadar tiada butang.
+- **Worker boleh mengehadkan cubaan log masuk** (mitigasi MFA (b)) — mustahil jika browser
+  bercakap terus dengan Google.
+- **Token tidak boleh dicuri oleh skrip** (HttpOnly), tidak seperti ID token dalam memori JS.
+- **Sesi boleh ditamatkan serta-merta** (log keluar, `grant-admin --revoke`), dan pendek:
+  8 jam mutlak, 60 minit tidak aktif.
+- Bundle admin tiada Firebase SDK: 2.5 KB gzip; CSP `connect-src 'self'` sahaja.
+
+**CSRF.** Cookie `SameSite=Strict`, setiap permintaan yang mengubah keadaan mesti membawa
+`Origin` sama, dan badan mesti `application/json`.
+
+**Akibat.** Pembatalan claim `admin` berkuat kuasa pada log masuk seterusnya; untuk
+memotong sesi aktif, `grant-admin --revoke` memadam sesi akaun itu. Akaun dengan MFA
+Identity Platform (jika diaktifkan kemudian) ditolak oleh aliran ini sehingga ia
+disokong (`MFA_REQUIRED` dilog).
+
+Endpoint dan medan disahkan daripada dokumen discovery rasmi Identity Toolkit.
+
+---
+
+## ADR-014 — Data lead: hash telefon & IP, persetujuan berversi
+
+- Telefon dinormalkan ke E.164 (bimbit Malaysia sahaja, `+601…`) dan disimpan bersama
+  `phoneHash` = HMAC-SHA256 dengan `PHONE_HASH_PEPPER`, berawalan tujuan (`phone:`), untuk
+  had kadar dan pemadanan masa depan tanpa membaca nombor.
+- **IP mentah tidak pernah disimpan.** Hanya HMAC (`ip:`), dan hanya dalam ID kaunter had
+  kadar serta rekod sesi admin.
+- Setiap lead merekod `consent: { privacyVersion, at }` daripada `settings.policyVersions`.
+  Versi diambil dari pelayan, bukan dari browser.
+- Medan bebas (nama, nota) menolak aksara kawalan; tiada input mentah dipantulkan dalam
+  mesej ralat.
+- Eksport CSV meneutralkan sel yang bermula dengan `= + - @ tab CR` (CSV injection).
+
+---
+
+## ADR-015 — Laman dijana pada masa build daripada settings; pengawal draf
+
+**Keputusan.** Setiap halaman ialah fungsi TypeScript yang memulangkan HTML melalui
+templat `html` yang meng-escape setiap nilai; plugin Vite menjana dokumen penuh semasa
+build. Harga, deposit, add-on, lokasi dan polisi dibaca daripada `DEFAULT_SETTINGS` —
+objek yang sama digunakan oleh `quote()` di pelayan dan kalkulator di browser.
+
+**Kenapa.** HTML statik: pantas di 4G, boleh diindeks, berfungsi tanpa JS (kecuali borang
+dan kalkulator). Tiada `innerHTML`. Angka di halaman tidak boleh bercanggah dengan harga
+yang dikira. Lighthouse mobile tempatan: Performance / Accessibility / Best Practices 100.
+
+**Had yang disedari.** Dalam Fasa 1, `settings/*` belum boleh disunting melalui UI, jadi
+`DEFAULT_SETTINGS` ialah sumber tunggal dan menukar harga = suntingan kod + deploy. Apabila
+UI settings tiba (Fasa 2), laman akan membaca `GET /api/pricing` (atau dibina semula
+selepas perubahan settings).
+
+**Pengawal draf.** Kandungan yang belum disahkan pemilik dibalut `draft()`. Build staging
+memaparkan banner "DRAF" dan `noindex`. **Build production gagal** selagi ada draf, kunci
+ujian Turnstile, atau `VITE_SITE_ORIGIN` tiada. Kandungan tekaan tidak boleh sampai ke
+pelanggan secara tidak sengaja.
+
+**Pemuat config Vite.** Kod build-time mengimport `shared` melalui laluan relatif
+(`src/render/shared.ts`) kerana pemuat config Vite memuatkan pakej bare dengan Node biasa,
+yang tidak dapat menyelesaikan import TypeScript tanpa sambungan. Kod browser kekal
+menggunakan `@lensarent/shared/...`.
+
+---
+
+## ADR-016 — `grant-admin` berjalan terus dengan Node
+
+Skrip menggunakan type stripping Node 22.18+ (tiada `tsx`, tiada build) dan mengimport
+`googleAuth.ts` / `identityToolkit.ts` Worker terus — kedua-dua fail hanya menggunakan
+sintaks TypeScript yang boleh dibuang dan tiada import relatif tanpa sambungan. Ia
+menetapkan/menarik balik claim melalui Identity Toolkit Admin REST, dan `--revoke` juga
+memadam sesi admin akaun itu. Diuji terhadap emulator Auth + Firestore.
+
+---
+
 ## Dependency & justifikasi
 
-| Pakej                                                                                           | Di mana        | Sebab                                                             |
-| ----------------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------- |
-| `zod`                                                                                           | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0 |
-| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev)     | TS strict, lint, format                                           |
-| `vitest`, `@vitest/coverage-v8`                                                                 | dev            | Ujian + gate coverage                                             |
-| `@cloudflare/vitest-plugin`                                                                     | worker (dev)   | Jalankan ujian dalam workerd                                      |
-| `wrangler`, `@cloudflare/workers-types`                                                         | worker (dev)   | Dev lokal, deploy, jenis runtime                                  |
-| `vite`                                                                                          | web (dev)      | Build laman statik                                                |
-| `firebase-tools`                                                                                | root (dev)     | Emulator Suite, deploy rules                                      |
-| `@firebase/rules-unit-testing`, `firebase`                                                      | firebase (dev) | Ujian Security Rules                                              |
+| Pakej                                                                                           | Di mana        | Sebab                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zod`                                                                                           | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0                                                                            |
+| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev)     | TS strict, lint, format                                                                                                                      |
+| `vitest`, `@vitest/coverage-v8`                                                                 | dev            | Ujian + gate coverage                                                                                                                        |
+| `@cloudflare/vitest-plugin`                                                                     | worker (dev)   | Jalankan ujian dalam workerd                                                                                                                 |
+| `wrangler`, `@cloudflare/workers-types`                                                         | worker (dev)   | Dev lokal, deploy, jenis runtime                                                                                                             |
+| `vite`                                                                                          | web (dev)      | Build laman statik                                                                                                                           |
+| `firebase-tools`                                                                                | root (dev)     | Emulator Suite, deploy rules                                                                                                                 |
+| `@firebase/rules-unit-testing`, `firebase`                                                      | firebase (dev) | Ujian Security Rules                                                                                                                         |
+| `jose`                                                                                          | worker         | Pengesahan ID token Firebase (RS256 + JWKS). Kod kritikal keselamatan: guna pustaka yang diuji luas, tanpa dependency, berasaskan Web Crypto |
 
-Dirancang: `jose` (Fasa 1, sahkan ID token admin — kod kritikal keselamatan, guna pustaka
-teruji tanpa dependency), `firebase/auth` (Fasa 1, log masuk admin di browser).
+`firebase/auth` di browser **tidak** diperlukan lagi (ADR-013).
 
-**Nota saiz.** Bundle Worker ≈ 781 KiB (123 KiB gzip), kebanyakannya zod. Jauh di bawah
+**Nota saiz.** Bundle Worker ≈ 887 KiB (151 KiB gzip), kebanyakannya zod dan jose. Jauh di bawah
 had; jika perlu dikecilkan kemudian, `zod/mini` ialah pilihan.
 
 ---
 
 ## Sumber yang disahkan
 
-| Perkara                                                                 | Sumber                                                                                 |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Semantik `commit` / `Precondition` / `batchWrite` / `exportDocuments`   | Dokumen discovery rasmi: `https://firestore.googleapis.com/$discovery/rest?version=v1` |
-| Konfigurasi static assets, `run_worker_first`, `ratelimits`, `triggers` | `node_modules/wrangler/config-schema.json` (wrangler 4.160.0)                          |
-| Sokongan fail `_headers`                                                | Diuji di `wrangler dev`                                                                |
-| Keserasian `firebase-admin`                                             | Percubaan langsung (ADR-001)                                                           |
-| Atomicity dan tingkah laku perlumbaan                                   | Ujian emulator (ADR-002)                                                               |
+| Perkara                                                                        | Sumber                                                                                                     |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Semantik `commit` / `Precondition` / `batchWrite` / `exportDocuments`          | Dokumen discovery rasmi: `https://firestore.googleapis.com/$discovery/rest?version=v1`                     |
+| Konfigurasi static assets, `run_worker_first`, `ratelimits`, `triggers`        | `node_modules/wrangler/config-schema.json` (wrangler 4.160.0)                                              |
+| Sokongan fail `_headers`                                                       | Diuji di `wrangler dev`                                                                                    |
+| Keserasian `firebase-admin`                                                    | Percubaan langsung (ADR-001)                                                                               |
+| Atomicity dan tingkah laku perlumbaan                                          | Ujian emulator (ADR-002)                                                                                   |
+| `signInWithPassword`, `accounts:lookup`, `accounts:update`, `customAttributes` | Dokumen discovery rasmi: `https://identitytoolkit.googleapis.com/$discovery/rest?version=v1`               |
+| JWKS ID token Firebase                                                         | `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com` (diambil, 200) |
+| Polisi TTL dalam `fieldOverrides`                                              | Validator `firebase-tools` sendiri (`FirestoreApi.validateSpec`)                                           |
+| Kunci ujian Turnstile (`1x00000000000000000000AA` dsb.)                        | Kunci ujian yang didokumenkan Cloudflare; **siteverify tidak dapat dicapai dari sesi ini**                 |
 
 **Tidak dapat dibaca terus dalam sesi ini** (hos disekat polisi rangkaian):
 `developers.cloudflare.com`, `firebase.google.com`, `docs.chip-in.asia`. Fasa 0 tidak

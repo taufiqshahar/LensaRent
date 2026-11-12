@@ -1,13 +1,15 @@
 # Ujian & Kriteria Penerimaan
 
-**Status Fasa 0:** 951 ujian, semuanya lulus.
+**Status Fasa 1:** 1,112 ujian, semuanya lulus (ditambah satu semakan E2E Playwright manual, lihat bawah).
 
-| Suite            | Di mana ia berjalan                 | Ujian | Arahan               |
-| ---------------- | ----------------------------------- | ----- | -------------------- |
-| Logik domain     | Node                                | 584   | `pnpm test:unit`     |
-| Unit Worker      | workerd                             | 103   | `pnpm test:unit`     |
-| Integrasi Worker | workerd + Firestore emulator        | 39    | `pnpm test:emulator` |
-| Security Rules   | Node + Firestore & Storage emulator | 225   | `pnpm test:emulator` |
+| Suite              | Di mana ia berjalan                 | Ujian | Arahan               |
+| ------------------ | ----------------------------------- | ----- | -------------------- |
+| Logik domain       | Node                                | 621   | `pnpm test:unit`     |
+| Unit Worker        | workerd                             | 154   | `pnpm test:unit`     |
+| Integrasi Worker   | workerd + Firestore & Auth emulator | 69    | `pnpm test:emulator` |
+| Security Rules     | Node + Firestore & Storage emulator | 255   | `pnpm test:emulator` |
+| Laman web (render) | Node                                | 10    | `pnpm test:unit`     |
+| `grant-admin`      | Node + Auth & Firestore emulator    | 3     | `pnpm test:emulator` |
 
 Ujian Worker berjalan dalam **workerd**, runtime yang sama dengan production, melalui
 `@cloudflare/vitest-plugin`. `pnpm test:emulator` menghidupkan dan mematikan emulator
@@ -112,23 +114,62 @@ Untuk ujian rendaman yang lebih panjang, naikkan `ROUNDS` dalam fail ujian itu.
 
 ### Integrasi Worker
 
-| Kriteria                                                           | Status                                 |
-| ------------------------------------------------------------------ | -------------------------------------- |
-| Log bebas PII (snapshot logger)                                    | ✅                                     |
-| Hold tamat → slot boleh ditempah semula                            | ✅ primitif kunci · 📌 aliran Fasa 2   |
-| Blok maintenance menghalang tempahan pada hari sama                | ✅ primitif kunci · 📌 endpoint Fasa 2 |
-| 20 `hold` serentak → tepat 1 berjaya, 19 dapat `409`               | ✅ primitif kunci · 📌 endpoint Fasa 2 |
-| Aliran hold → webhook → `confirmed`; ledger; outbox                | 📌 Fasa 2                              |
-| Tandatangan webhook tidak sah / amaun tidak padan                  | 📌 Fasa 2                              |
-| Bayar selepas hold tamat (bebas → sah; diambil → `refund_pending`) | 📌 Fasa 2                              |
-| `overdue` selepas grace                                            | ✅ logik · 📌 cron Fasa 2              |
-| Lookup token salah → 404 generik                                   | 📌 Fasa 2                              |
-| Rate limit & Turnstile                                             | 📌 Fasa 1                              |
-| Peralihan tidak sah ditolak oleh endpoint                          | ✅ logik · 📌 endpoint Fasa 2          |
+| Kriteria                                                           | Status                                                            |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| Log bebas PII (snapshot logger)                                    | ✅                                                                |
+| Hold tamat → slot boleh ditempah semula                            | ✅ primitif kunci · 📌 aliran Fasa 2                              |
+| Blok maintenance menghalang tempahan pada hari sama                | ✅ primitif kunci · 📌 endpoint Fasa 2                            |
+| 20 `hold` serentak → tepat 1 berjaya, 19 dapat `409`               | ✅ primitif kunci · 📌 endpoint Fasa 2                            |
+| Aliran hold → webhook → `confirmed`; ledger; outbox                | 📌 Fasa 2                                                         |
+| Tandatangan webhook tidak sah / amaun tidak padan                  | 📌 Fasa 2                                                         |
+| Bayar selepas hold tamat (bebas → sah; diambil → `refund_pending`) | 📌 Fasa 2                                                         |
+| `overdue` selepas grace                                            | ✅ logik · 📌 cron Fasa 2                                         |
+| Lookup token salah → 404 generik                                   | 📌 Fasa 2                                                         |
+| Rate limit & Turnstile                                             | ✅ (Turnstile disimulasi; siteverify sebenar disahkan di staging) |
+| Peralihan tidak sah ditolak oleh endpoint                          | ✅ logik · 📌 endpoint Fasa 2                                     |
 
 ### Manual / E2E dan launch checklist
 
 Belum terpakai pada Fasa 0. Lihat master prompt §12.
+
+## Fasa 1: apa yang dibuktikan
+
+**Integrasi (emulator Firestore + Auth, dalam workerd):**
+
+- `POST /api/leads`: lead disimpan dinormalkan tanpa IP mentah; ralat per medan dalam BM
+  tanpa memantulkan input; tarikh lalu / > 1 tahun ditolak; Turnstile gagal → tiada tulisan;
+  had 3/hari per telefon dan 10/jam per IP; **6 penyerahan serentak untuk had 3 → tepat 3
+  lulus**; burst limiter.
+- Admin: log masuk betul → cookie HttpOnly/Strict, hanya hash token disimpan, log masuk
+  diaudit; kata laluan salah / akaun tiada / bukan admin / badan rosak → jawapan sama;
+  Origin lain → 403; had 5 cubaan per emel (kata laluan betul pun ditolak dalam tetingkap);
+  log keluar membatalkan cookie; cookie palsu ditolak; sesi tamat mutlak (8 j) dan tidak
+  aktif (60 min); aktiviti melanjutkan sesi.
+- Leads: tapis hari/status, susunan terbaharu dahulu, halaman berturutan tanpa ulangan;
+  penapis tidak sah → 400; kemas kini status/nota + audit (nama medan sahaja); kemas kini
+  tidak sah / ID tiada / Origin lain ditolak tanpa mengubah data; eksport CSV menapis dan
+  meneutralkan formula.
+- `grant-admin`: claim muncul dalam ID token seterusnya; `--revoke` memadam claim dan sesi
+  akaun itu sahaja; emel tiada → ralat jelas.
+
+**Unit:** penormalan telefon Malaysia; skema lead; HMAC; bacaan badan JSON (jenis, saiz);
+cookie; Origin; CSV; Turnstile (strict / tidak strict / gagal); pengesahan ID token dengan
+kunci RSA tempatan (tandatangan salah, tanpa tandatangan, audience/issuer/expiry, tiada
+claim admin); pemetaan ralat Identity Toolkit; escaping templat HTML; dokumen staging lwn
+production (noindex, canonical, banner draf).
+
+**Rules:** 255 ujian, kini termasuk `adminSessions` dan `rateLimits`.
+
+**E2E (Playwright, manual, bukan dalam CI):** `wrangler dev` + emulator, iPhone 13 dan
+Pixel 7 — 23 semakan lulus: tiada skrol mendatar, kalkulator (3 hari + CPL = RM275),
+ralat medan dan mesej berjaya borang (API & Turnstile disimulasi), semua halaman polisi,
+404, tiada ralat konsol; admin: kata laluan salah ditolak, cookie HttpOnly/Strict, senarai
+terbaharu dahulu, pautan WhatsApp pra-isi, tukar status, nota, tapis, eksport CSV, log
+keluar.
+
+**Lighthouse mobile (build tempatan):** landing — Performance 100, Accessibility 100, Best
+Practices 100, SEO 63 (hanya `is-crawlable`: staging sengaja `noindex`). Admin — 100 / 100 /
+96 (ralat konsol: `401` yang dijangka sebelum log masuk).
 
 ## Ujian manual Fasa 0
 

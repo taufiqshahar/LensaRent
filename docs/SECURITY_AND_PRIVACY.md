@@ -1,6 +1,6 @@
 # Keselamatan & Privasi
 
-**Status:** kawalan bertanda ✅ sudah dilaksana dan diuji (Fasa 0). Yang bertanda 📌
+**Status:** kawalan bertanda ✅ sudah dilaksana dan diuji (Fasa 0–1). Yang bertanda 📌
 dirancang untuk fasa yang dinyatakan.
 
 ## Model: Worker ialah satu-satunya lapisan penguatkuasaan
@@ -34,10 +34,17 @@ Browser ──► Worker ──(service account)──► Firestore / Storage
 
 - ✅ Security Rules deny-all untuk Firestore dan Storage; diuji untuk pelawat, pengguna
   log masuk dan **admin log masuk** pada setiap koleksi.
-- 📌 Fasa 1: endpoint `/api/admin/*` mengesahkan ID token Firebase (RS256, JWKS Google,
-  pustaka `jose`) dan `claims.admin === true`.
-- 📌 Fasa 1: tiada signup awam. Admin dicipta melalui `scripts/grant-admin.ts` sahaja.
-- ⏳ MFA admin: menunggu keputusan pemilik (ADR-004).
+- ✅ Log masuk admin melalui Worker (ADR-013): ID token disahkan dengan `jose` (RS256,
+  JWKS Google, issuer, audience, expiry) dan `admin === true`; kemudian sesi Worker
+  sendiri dalam cookie `__Host-`, HttpOnly, Secure, SameSite=Strict. Firestore simpan
+  hash token sahaja. Sesi: 8 jam mutlak, 60 minit tidak aktif.
+- ✅ Setiap kegagalan log masuk memberi jawapan sama (tidak mendedahkan sama ada akaun
+  wujud atau adalah admin). Had: 10 / 15 min per IP, 5 / 15 min per emel.
+- ✅ CSRF: SameSite=Strict + semakan `Origin` pada setiap permintaan admin yang mengubah
+  keadaan + badan JSON sahaja.
+- ✅ Tiada signup awam: kunci API Firebase hanya di Worker, tidak pernah di browser. Admin
+  dijadikan melalui `scripts/grant-admin.ts` sahaja; `--revoke` menamatkan sesi serta-merta.
+- ⏳ MFA admin: menunggu keputusan pemilik (ADR-004; cadangan baharu: TOTP dalam Worker).
 
 ## Rahsia
 
@@ -45,7 +52,7 @@ Browser ──► Worker ──(service account)──► Firestore / Storage
   hanya dalam Worker secrets / GitHub Secrets. `.dev.vars` di-gitignore; hanya
   `.dev.vars.example` (tanpa nilai) dalam repo.
 - 📌 Fasa 1: service account production dan staging berasingan.
-- ✅ Worker enggan berjalan jika `FIRESTORE_EMULATOR_HOST` diset di staging/production,
+- ✅ Worker enggan berjalan jika hos emulator (Firestore atau Auth) diset di staging/production,
   dan hos emulator mesti loopback (emulator menerima sesiapa sahaja sebagai pemilik).
 - ✅ Ralat konfigurasi dan ralat auth menamakan binding sahaja, tidak pernah nilainya.
   Respons ralat Google tidak diulang ke dalam log.
@@ -60,7 +67,9 @@ Browser ──► Worker ──(service account)──► Firestore / Storage
   menaikkan kos.
 - ✅ Setiap query Firestore mesti mempunyai `limit` (maks 1000); tiada bacaan tanpa had.
 - ✅ Laluan dokumen disahkan (tiada segmen kosong, `.` atau `..`).
-- 📌 Fasa 1: Turnstile + rate limit dua lapis (ADR-007), zod pada semua input.
+- ✅ Turnstile (hostname + action disemak di staging/production) dan had kadar dua lapis
+  (ADR-007). zod `strictObject` pada semua input; badan ≤ 16 KiB, JSON sahaja.
+- ✅ Eksport CSV meneutralkan formula (CSV injection).
 - 📌 Fasa 2: perbandingan token masa-malar; `lookupToken` 32 byte, hanya hash disimpan;
   lookup dengan token salah → 404 generik.
 
@@ -76,8 +85,13 @@ Browser ──► Worker ──(service account)──► Firestore / Storage
 | `Permissions-Policy`        | kamera, mikrofon, lokasi, bayaran dimatikan     | sama                                         |
 | `Cache-Control`             | —                                               | `no-store`                                   |
 
-✅ Disahkan di `wrangler dev`. 📌 CSP diperluas untuk Turnstile dan Firebase Auth
-(Fasa 1) dan CHIP (Fasa 2) — hanya domain yang benar-benar diperlukan.
+✅ Disahkan di `wrangler dev`. CSP laman awam membenarkan `challenges.cloudflare.com`
+(skrip + iframe Turnstile) sahaja; `/admin/*` lebih ketat (tiada pihak ketiga langsung),
+`no-store`, `noindex`. 📌 CHIP ditambah pada Fasa 2.
+
+⚠️ CSP Turnstile belum diuji dengan widget sebenar (hos disekat dalam sesi pembangunan).
+Sahkan pada staging; jika widget memerlukan lebih, tambah sumber Cloudflare yang
+spesifik sahaja.
 
 ✅ **Tiada `innerHTML`** dalam `apps/web`: dikuatkuasakan oleh ESLint
 (`innerHTML`, `outerHTML`, `insertAdjacentHTML` dilarang). Rentetan dalam HTML di-escape
@@ -104,7 +118,11 @@ development/test. Ujian snapshot membuktikan tiada PII yang ditanam sampai ke ou
   luar sistem.
 - Telefon disimpan sebagai E.164 dan sebagai `phoneHash` (HMAC-SHA256 dengan pepper)
   untuk carian dan rate limit.
-- 📌 Fasa 2: persetujuan direkod dengan versi T&C/privasi, masa dan hash IP.
+- ✅ Persetujuan borang minat direkod dengan versi notis privasi dan masa (dari pelayan).
+- ✅ IP tidak pernah disimpan mentah; hanya HMAC untuk had kadar.
+- ⚠️ PDPA s.7(3): notis privasi perlu dalam BM **dan Inggeris**. Draf semasa BM sahaja —
+  untuk peguam.
+- 📌 Fasa 2: persetujuan T&C semasa tempahan.
 - 📌 Fasa 2/3: foto serahan dipadam 30 hari selepas baki deposit = 0 tanpa pertikaian.
 - ⚠️ Tempoh simpanan rekod kewangan: **perlu disahkan dengan akauntan** sebelum
   automasi retention dibina.
@@ -116,6 +134,8 @@ development/test. Ujian snapshot membuktikan tiada PII yang ditanam sampai ke ou
 | --------------------------------------------------- | ---------------------------------------------------- |
 | Kesilapan kod Worker tidak ditangkap oleh Firestore | Logik pure + ujian emulator; semakan kod setiap fasa |
 | Emulator tidak menguatkuasakan composite index      | Semak dan tambah index bersama setiap query baharu   |
-| Akaun admin tanpa MFA                               | ⏳ ADR-004 sebelum Fasa 1 dilancarkan                |
+| Akaun admin tanpa MFA                               | ⏳ ADR-004; mitigasi (b) dilaksana                   |
+| Amaran log masuk dari IP baharu belum ada           | Perlu outbox email (Fasa 2)                          |
+| Kandungan undang-undang ialah draf                  | Build production ditolak sehingga disahkan (ADR-015) |
 | Pertukaran token OAuth sebenar belum diuji          | Disahkan pada deploy staging pertama                 |
 | Tindakan GitHub dirujuk dengan tag major, bukan SHA | Pin ke SHA sebelum production                        |

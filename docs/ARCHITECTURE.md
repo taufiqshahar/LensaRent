@@ -4,7 +4,7 @@ LensaRent ialah sistem tempahan sewaan kamera single-tenant: laman awam, wizard 
 bayaran online dan panel admin. Dokumen ini menerangkan bentuk sistem; sebab di sebalik
 setiap pilihan ada dalam [DECISIONS.md](DECISIONS.md).
 
-**Status:** Fasa 0 (asas) siap. Bahagian bertanda _(Fasa 1/2)_ belum dibina.
+**Status:** Fasa 0 dan Fasa 1 siap (belum dideploy). Bahagian bertanda _(Fasa 2)_ belum dibina.
 
 ## Gambaran
 
@@ -68,25 +68,51 @@ Fungsi pure tanpa I/O, dikongsi oleh web dan Worker. Satu-satunya dependency ial
 
 ### `apps/worker` — Cloudflare Worker
 
-| Fail                           | Tanggungjawab                                                    |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `src/index.ts`                 | Titik masuk; sempadan ralat (respons generik, butiran ke log)    |
-| `src/router.ts`                | Padanan laluan (`URLPattern`), 404/405                           |
-| `src/lib/env.ts`               | Validasi binding; menolak hos emulator di staging/production     |
-| `src/lib/googleAuth.ts`        | JWT service account (Web Crypto) → access token OAuth2           |
-| `src/lib/firestoreValues.ts`   | Codec nilai JS ↔ JSON bertaip Firestore                          |
-| `src/lib/firestore.ts`         | Klien REST: `get`, `getAll`, `query`, `commit`, `runTransaction` |
-| `src/lib/availabilityLocks.ts` | `acquireDayLocks`, `releaseDayLocks`                             |
-| `src/lib/logger.ts`            | Log JSON berstruktur dengan redaksi PII                          |
-| `src/lib/http.ts`              | Respons JSON, header keselamatan, katalog ralat                  |
+| Fail                                      | Tanggungjawab                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`, `src/app.ts`              | Titik masuk; senarai laluan; sempadan ralat                                                             |
+| `src/services.ts`                         | Perkhidmatan setiap permintaan (Firestore, Turnstile, hasher, log masuk, ID token); diganti dalam ujian |
+| `src/routes/*.ts`                         | Handler: `leads`, `adminSession`, `adminLeads`, pengawal `adminAuth`                                    |
+| `src/lib/turnstile.ts`                    | Pengesahan Turnstile (siteverify)                                                                       |
+| `src/lib/rateLimit.ts`                    | Kaunter had kadar di Firestore (ADR-007)                                                                |
+| `src/lib/identityToolkit.ts`              | Log masuk Firebase Auth melalui REST; operasi admin untuk skrip                                         |
+| `src/lib/idToken.ts`                      | Pengesahan ID token dengan `jose`                                                                       |
+| `src/lib/sessions.ts`                     | Sesi admin (cookie HttpOnly, hash di Firestore)                                                         |
+| `src/lib/crypto.ts`, `csv.ts`, `audit.ts` | HMAC/token rawak, eksport CSV selamat, entri audit                                                      |
+| `src/router.ts`                           | Padanan laluan (`URLPattern`), 404/405                                                                  |
+| `src/lib/env.ts`                          | Validasi binding; menolak hos emulator di staging/production                                            |
+| `src/lib/googleAuth.ts`                   | JWT service account (Web Crypto) → access token OAuth2                                                  |
+| `src/lib/firestoreValues.ts`              | Codec nilai JS ↔ JSON bertaip Firestore                                                                 |
+| `src/lib/firestore.ts`                    | Klien REST: `get`, `getAll`, `query`, `commit`, `runTransaction`                                        |
+| `src/lib/availabilityLocks.ts`            | `acquireDayLocks`, `releaseDayLocks`                                                                    |
+| `src/lib/logger.ts`                       | Log JSON berstruktur dengan redaksi PII                                                                 |
+| `src/lib/http.ts`                         | Respons JSON, header keselamatan, katalog ralat                                                         |
 
-Endpoint semasa: `GET /api/health`. Endpoint lain tiba mengikut fasa (master prompt §10).
+Endpoint semasa: `GET /api/health`, `POST /api/leads`, `/api/admin/session` (POST/GET/DELETE),
+`GET /api/admin/leads`, `GET /api/admin/leads/export`, `PUT /api/admin/leads/:id`. Lihat
+[API_SPECIFICATION.md](API_SPECIFICATION.md).
 
 ### `apps/web` — laman statik
 
-Vite multi-halaman, TypeScript strict, tanpa framework UI, CSS biasa. HTML merujuk teks
-sebagai `{{t:key}}` yang digantikan daripada `strings.bm.ts` semasa build. Fasa 0 hanya
-mengandungi halaman placeholder dan 404.
+Vite multi-halaman, TypeScript strict, tanpa framework UI, CSS biasa (ADR-015).
+
+| Bahagian         | Kandungan                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `src/pages/*.ts` | Setiap halaman sebagai fungsi yang memulangkan HTML (landing, terma, privasi, polisi, panduan, soalan lazim, 404, admin) |
+| `src/content/`   | `facts.ts` (angka daripada settings), `site.ts` (teks BM; `draft()` untuk yang belum disahkan)                           |
+| `src/render/`    | Templat `html` yang meng-escape, susun atur, pengawal draf                                                               |
+| `src/main.ts`    | Kalkulator harga + borang minat (Turnstile dimuat malas)                                                                 |
+| `src/admin.ts`   | Panel admin: log masuk, leads, status, nota, WhatsApp, CSV                                                               |
+| `vite.config.ts` | Menjana HTML, `robots.txt`, `sitemap.xml`; menolak build production yang belum sedia                                     |
+
+Mod build: `staging` (lalai `pnpm build`: banner DRAF, `noindex`) dan `production`
+(`build:production`: gagal jika ada draf, kunci ujian Turnstile, atau tiada
+`VITE_SITE_ORIGIN`).
+
+### `scripts`
+
+`grant-admin.ts` — beri / tarik balik claim `admin` (dan tamatkan sesi). Berjalan terus
+dengan Node (ADR-016).
 
 ### `firebase` — rules dan emulator
 
@@ -121,6 +147,5 @@ GitHub Secrets.
 
 | Fasa | Kandungan                                                                                             |
 | ---- | ----------------------------------------------------------------------------------------------------- |
-| 1    | Landing page, borang minat (`leads`), Turnstile, rate limit, log masuk admin, senarai leads           |
 | 2    | Ketersediaan, hold, checkout CHIP, webhook, halaman status, operasi admin, outbox email, cron, backup |
 | 3    | Laporan, kod referral, automasi retention                                                             |

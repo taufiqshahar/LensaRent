@@ -4,7 +4,8 @@ Booking system for renting a DJI Osmo Pocket 4P (northern Peninsular Malaysia). 
 brief is `CLAUDE_CODE_MASTER_PROMPT.md`; decisions that refine or override it are in
 `docs/DECISIONS.md`. Read both before changing behaviour.
 
-**Status:** Fasa 0 (foundation) is complete. Work proceeds one phase at a time and STOPS
+**Status:** Fasa 0 (foundation) and Fasa 1 (landing page, interest form, admin leads) are
+complete but not yet deployed. Work proceeds one phase at a time and STOPS
 for the owner's approval after each phase (master prompt §3).
 
 ## Commands
@@ -17,18 +18,24 @@ for the owner's approval after each phase (master prompt §3).
 | Unit tests          | `pnpm test:unit`                                                                              |
 | Emulator tests      | `pnpm test:emulator` (starts and stops the emulators itself; needs Java)                      |
 | Everything          | `pnpm test`                                                                                   |
-| Build               | `pnpm build` (Vite build, then `wrangler deploy --dry-run`)                                   |
+| Build               | `pnpm build` (Vite **staging** build, then `wrangler deploy --dry-run`)                       |
+| Production site     | `pnpm --filter @lensarent/web build:production` — refuses while drafts/test keys remain       |
+| Make an admin       | `pnpm grant-admin --project <id> --email <email> --key <sa.json> [--revoke]`                  |
 | Local dev           | `pnpm dev:emulators` in one terminal, `pnpm dev` in another                                   |
 | Deploy              | `wrangler deploy --env staging` / `--env production` from `apps/worker` — always with `--env` |
 
 Run one Worker test file: `pnpm --filter @lensarent/worker exec vitest run test/unit/logger.test.ts`.
-Worker integration tests need the emulators running (`pnpm dev:emulators`).
+Worker integration tests need the emulators running (`pnpm dev:emulators`): Firestore,
+Storage and Auth. Local dev needs `apps/worker/.dev.vars` (copy `.dev.vars.example`).
 
 ## Layout
 
 - `packages/shared` — pure domain logic and zod schemas. No I/O. Coverage gate 90%.
 - `apps/worker` — the single Cloudflare Worker: `/api/*`, later webhook and cron.
-- `apps/web` — Vite + TypeScript, no UI framework. Public site and `/admin`.
+- `apps/web` — Vite + TypeScript, no UI framework. Pages are TypeScript functions in
+  `src/pages` rendered to static HTML at build time; `src/main.ts` / `src/admin.ts` are the
+  only browser scripts.
+- `scripts` — `grant-admin.ts` (runs directly on Node 22.18+).
 - `firebase` — Security Rules, indexes, emulator config, rules tests.
 - `docs` — architecture, decisions, schema, logic, security, testing.
 
@@ -63,8 +70,19 @@ Worker integration tests need the emulators running (`pnpm dev:emulators`).
 ## Conventions
 
 - TypeScript strict; no `any` without a written reason. ESLint must be clean.
-- Code, identifiers and comments in English. Customer-facing text in Bahasa Melayu, kept
-  in `apps/web/src/strings.bm.ts` (HTML uses `{{t:key}}`, substituted at build time).
+- Code, identifiers and comments in English. Customer-facing text in Bahasa Melayu: page
+  content in `apps/web/src/content/site.ts`, enum labels in `packages/shared/src/leadOptions.ts`,
+  API messages in `apps/worker/src/lib/http.ts` and the route files.
+- Every number on the site (prices, deposit, fees, hours) comes from `content/facts.ts`,
+  which reads the settings. Never type a price into page text.
+- Anything not confirmed by the owner goes through `draft()`; never remove a `draft()` to
+  make the production build pass — get the owner's confirmation.
+- Build-time code imports shared via `src/render/shared.ts` (relative path); browser code
+  imports `@lensarent/shared/<module>`. Browser code must not import modules that pull in
+  zod (keep labels in `leadOptions.ts`).
+- Admin endpoints start with `requireAdmin(context, { mutating })`; mutating ones need the
+  same-origin check it performs. Every admin change writes `auditWrite()` in the same commit.
+- Identifiers that become document ids (IP, phone, email) are always hashed first.
 - A new dependency needs a justification in `docs/DECISIONS.md`. Prefer Web APIs.
 - Do not use `firebase-admin` in the Worker — it cannot run there (ADR-001).
 - Tests share one emulator: use unique ids (`uniqueId()`), never clear emulator data.

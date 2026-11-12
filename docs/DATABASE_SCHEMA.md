@@ -4,9 +4,10 @@ Firestore (Native mode), lokasi `asia-southeast1`. Semua koleksi berada di perin
 atas. Dokumen ini ialah reka bentuk sasaran; lajur **Fasa** menunjukkan bila kod yang
 menulis koleksi itu dibina.
 
-**Status Fasa 0:** hanya `availabilityLocks` mempunyai kod penulis
-(`acquireDayLocks` / `releaseDayLocks`) dan skema `settings/*` mempunyai validasi zod.
-Bentuk koleksi lain akan dimuktamadkan dengan skema zod pada fasanya.
+**Status Fasa 1:** koleksi yang ada kod penulis: `availabilityLocks` (Fasa 0), `leads`,
+`adminSessions`, `rateLimits` dan `auditLogs`. `settings/*` disahkan zod tetapi belum
+ditulis (nilai datang daripada `DEFAULT_SETTINGS`). Koleksi lain dimuktamadkan dengan skema
+zod pada fasanya.
 
 ## Peraturan umum
 
@@ -35,7 +36,9 @@ Bentuk koleksi lain akan dimuktamadkan dengan skema zod pada fasanya.
 | `webhookEvents/{provider}_{eventKey}`     | **deterministik**   | 2     |
 | `notificationsOutbox/{notificationId}`    | auto                | 2     |
 | `receiptCounters/{year}`                  | tahun               | 2     |
-| `auditLogs/{logId}`                       | auto                | 1–2   |
+| `auditLogs/{logId}`                       | auto                | **1** |
+| `adminSessions/{sha256(token)}`           | **hash token**      | **1** |
+| `rateLimits/{rule}_{hash}_{window}`       | **deterministik**   | **1** |
 
 Tiada koleksi `admins`: status admin ialah custom claim `admin: true` pada akaun Firebase
 Auth.
@@ -144,12 +147,40 @@ idempotency: `create` kedua gagal dengan `ALREADY_EXISTS` → `already_processed
 
 ### `leads/{leadId}`
 
-Nama, telefon, tarikh diingini, kegunaan, sumber, status. Skema dimuktamadkan Fasa 1.
+ID 20 aksara (format auto-id Firestore, dijana Worker). Skema: `leadDocumentSchema`
+(`packages/shared/src/leads.ts`).
+
+| Medan                    | Jenis          | Nota                                                                 |
+| ------------------------ | -------------- | -------------------------------------------------------------------- |
+| `name`                   | string         | 2–80 aksara                                                          |
+| `phoneE164`              | string         | `+601…`                                                              |
+| `phoneHash`              | string         | HMAC (`phone:`), untuk had kadar                                     |
+| `desiredDate`            | string \| null | `yyyy-MM-dd` MYT; null = belum pasti                                 |
+| `usage`                  | enum           | `vlog` `travel` `event` `content` `family` `other`                   |
+| `source`                 | enum           | `tiktok` `instagram` `facebook` `whatsapp` `google` `friend` `other` |
+| `status`                 | enum           | `new` → `contacted` / `converted` / `not_interested` / `spam`        |
+| `notes`                  | string         | ≤ 2,000 aksara, admin sahaja                                         |
+| `consent`                | map            | `{ privacyVersion, at }`                                             |
+| `createdAt`, `updatedAt` | Timestamp      | Masa pelayan                                                         |
+
+Tiada IP mentah. Satu-satunya index composite: `(status ASC, createdAt DESC)`.
 
 ### `auditLogs/{logId}`
 
 `actorId, action, targetCollection, targetId, changedFields[], at`. Nama medan sahaja,
-tanpa nilai PII.
+tanpa nilai PII. Tindakan Fasa 1: `admin.login`, `admin.logout`, `lead.update`.
+
+### `adminSessions/{sha256(token)}`
+
+`uid, email, createdAt, expiresAt` (mutlak, +8 jam), `idleExpiresAt` (+60 minit, dilanjutkan
+setiap ≥ 5 minit aktiviti), `ipHash`. Token itu sendiri hanya wujud dalam cookie
+HttpOnly; dokumen dipadam semasa log keluar, apabila tamat, atau oleh
+`grant-admin --revoke`. TTL pada `expiresAt`.
+
+### `rateLimits/{rule}_{hash}_{window}`
+
+`count` (dinaikkan dengan `increment` atomik), `expiresAt` (hujung tetingkap). Kunci
+sentiasa hash. TTL pada `expiresAt`. Lihat ADR-007.
 
 ## Cloud Storage
 
@@ -158,7 +189,16 @@ muat naik/turun melalui signed URL berumur pendek yang dijana Worker (Fasa 2).
 
 ## Index
 
-`firebase/firestore.indexes.json` kosong pada Fasa 0. Composite index ditambah bersama
-query yang memerlukannya. ⚠️ Emulator **tidak** menguatkuasakan composite index — setiap
+`firebase/firestore.indexes.json`:
+
+| Jenis     | Koleksi         | Medan                        |
+| --------- | --------------- | ---------------------------- |
+| Composite | `leads`         | `status ASC, createdAt DESC` |
+| TTL       | `rateLimits`    | `expiresAt` (tanpa index)    |
+| TTL       | `adminSessions` | `expiresAt`                  |
+
+Fail disahkan dengan validator `firebase-tools`. ⚠️ Polisi TTL memadam dokumen dalam masa
+kira-kira 24 jam selepas tamat, bukan serta-merta. Kod tidak bergantung pada pemadaman
+itu: sesi dan kaunter tamat disemak dalam kod. ⚠️ Emulator **tidak** menguatkuasakan composite index — setiap
 query baharu yang menggabungkan penapis dan susunan pada medan berbeza mesti disemak dan
 index-nya ditambah sebelum deploy.
