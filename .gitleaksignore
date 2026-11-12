@@ -1,0 +1,8 @@
+# Known false positives in git history. Each line is a gitleaks fingerprint
+# (commit:file:rule:line) for a deliberately fake test fixture, never a real secret:
+# a PEM block whose body is "AAAA" and a JWT made of placeholder text.
+# The fixtures have since been rewritten so they no longer resemble credentials.
+# Add a line here only after confirming the finding is not a real credential.
+b8a6fe9c5ac091fe26d92e9b8bae489dd139ba58:apps/worker/test/unit/logger.test.ts:jwt:15
+b8a6fe9c5ac091fe26d92e9b8bae489dd139ba58:apps/worker/test/unit/googleAuth.test.ts:private-key:77
+b8a6fe9c5ac091fe26d92e9b8bae489dd139ba58:apps/worker/test/unit/googleAuth.test.ts:private-key:217

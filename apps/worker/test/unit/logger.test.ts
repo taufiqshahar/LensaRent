@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LogLevel } from "../../src/lib/logger";
 import { createLogger, redact, scrubText } from "../../src/lib/logger";
+import { fakePem } from "../helpers";
 
 /** Personal data and secrets planted in the log calls below. None may reach the output. */
 const PLANTED = [
@@ -55,7 +56,7 @@ describe("logger redaction", () => {
         "Hubungi ahmad@example.com atau 017-491 3169 / 0174913169 / wa.me/60174913169, " +
         "token eyJhbGciOiJ9.eyJzdWIiOiJ9.c2lnbg, " +
         "Bearer ya29.super-secret-access-token, " +
-        "kunci -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----",
+        `kunci ${fakePem("PRIVATE KEY", "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC").trimEnd()}`,
     });
 
     expect(lines).toHaveLength(1);

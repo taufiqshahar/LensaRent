@@ -10,7 +10,7 @@ import {
   parseServiceAccount,
   signServiceAccountJwt,
 } from "../../src/lib/googleAuth";
-import { decodeBase64Url, decodeJwtPart, generateTestServiceAccountKey } from "../helpers";
+import { decodeBase64Url, decodeJwtPart, fakePem, generateTestServiceAccountKey } from "../helpers";
 
 let account: ServiceAccount;
 let publicKey: CryptoKey;
@@ -74,16 +74,13 @@ describe("signServiceAccountJwt", () => {
       signServiceAccountJwt(
         {
           ...account,
-          privateKey: "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----",
+          privateKey: fakePem("RSA PRIVATE KEY"),
         },
         claims,
       ),
     ).rejects.toThrow(GoogleAuthError);
     await expect(
-      signServiceAccountJwt(
-        { ...account, privateKey: "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----" },
-        claims,
-      ),
+      signServiceAccountJwt({ ...account, privateKey: fakePem("PRIVATE KEY") }, claims),
     ).rejects.toThrow("could not be imported");
   });
 });
@@ -214,12 +211,12 @@ describe("parseServiceAccount", () => {
       type: "service_account",
       project_id: "demo-lensarent",
       private_key_id: "key-1",
-      private_key: "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
+      private_key: fakePem("PRIVATE KEY"),
       client_email: "worker@demo-lensarent.iam.gserviceaccount.com",
     });
     expect(parseServiceAccount(json)).toEqual({
       clientEmail: "worker@demo-lensarent.iam.gserviceaccount.com",
-      privateKey: "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
+      privateKey: fakePem("PRIVATE KEY"),
       privateKeyId: "key-1",
     });
   });

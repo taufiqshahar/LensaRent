@@ -68,6 +68,9 @@ Worker integration tests need the emulators running (`pnpm dev:emulators`).
 - A new dependency needs a justification in `docs/DECISIONS.md`. Prefer Web APIs.
 - Do not use `firebase-admin` in the Worker — it cannot run there (ADR-001).
 - Tests share one emulator: use unique ids (`uniqueId()`), never clear emulator data.
+- Test fixtures must not look like real credentials: build PEM blocks with `fakePem()`
+  and keep fake tokens short and low-entropy. `.gitleaksignore` is only for findings
+  confirmed to be fake.
 - Do not edit `firebase/*.rules` while emulators are running in a proxied sandbox; the
   hot reload can crash the emulator process there.
 - After each phase: all tests green, docs and this file updated, summary to the owner,
