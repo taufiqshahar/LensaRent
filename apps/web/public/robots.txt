@@ -1,3 +1,0 @@
-# Fasa 0 placeholder: nothing to index yet. Opened up at launch (Fasa 1).
-User-agent: *
-Disallow: /

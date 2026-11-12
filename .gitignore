@@ -10,6 +10,10 @@ coverage/
 !.dev.vars.example
 .env
 .env.*
+# Public build values only (Turnstile SITE key, site URL). Never put a secret in these.
+!apps/web/.env.development
+!apps/web/.env.staging
+!apps/web/.env.production
 *service-account*.json
 *serviceAccount*.json
 
