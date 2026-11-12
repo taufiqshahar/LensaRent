@@ -42,6 +42,7 @@ FIREBASE_PROJECT_ID = "lensarent-staging"
 [env.production]
 name = "lensarent-production"
 workers_dev = false
+# TODO(Fasa 1): add the custom domain route once {{DOMAIN}} is confirmed.
 
 [env.production.vars]
 ENVIRONMENT = "production"

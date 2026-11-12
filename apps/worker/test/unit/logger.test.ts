@@ -67,7 +67,7 @@ describe("logger redaction", () => {
         "bookingId": "bk_8f2k1",
         "consent": {
           "address": "[REDACTED]",
-          "ipHash": "abc",
+          "ipHash": "[REDACTED]",
           "termsVersion": "v1",
         },
         "customerSnapshot": "[REDACTED]",

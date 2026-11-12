@@ -46,6 +46,7 @@ const SENSITIVE_EXACT_KEYS: ReadonlySet<string> = new Set([
   "nric",
   "ip",
   "ipaddress",
+  "iphash",
   "useragent",
   "cookie",
   "signature",
