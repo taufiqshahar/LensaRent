@@ -120,16 +120,18 @@ async function main(): Promise<void> {
   const firestoreEmulatorHost = env.FIRESTORE_EMULATOR_HOST;
   const usingEmulators = authEmulatorHost !== undefined;
   const keyPath = values.key ?? env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!usingEmulators && !keyPath) {
+  let tokenProvider: AccessTokenProvider;
+  if (usingEmulators) {
+    tokenProvider = new EmulatorTokenProvider();
+  } else if (keyPath) {
+    tokenProvider = new ServiceAccountTokenProvider(
+      parseServiceAccount(readFileSync(keyPath, "utf8")),
+      [CLOUD_PLATFORM_SCOPE],
+    );
+  } else {
     console.error("Pass --key <service-account.json> (or set GOOGLE_APPLICATION_CREDENTIALS).");
     exit(2);
   }
-
-  const tokenProvider = usingEmulators
-    ? new EmulatorTokenProvider()
-    : new ServiceAccountTokenProvider(parseServiceAccount(readFileSync(keyPath!, "utf8")), [
-        CLOUD_PLATFORM_SCOPE,
-      ]);
 
   const result = await grantAdmin({
     projectId: values.project,

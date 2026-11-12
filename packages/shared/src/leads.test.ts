@@ -35,7 +35,8 @@ describe("leadSubmissionSchema", () => {
 
   it("treats a missing or empty date as not decided", () => {
     expect(leadSubmissionSchema.parse({ ...valid, desiredDate: "" }).desiredDate).toBeNull();
-    const { desiredDate: _omitted, ...withoutDate } = valid;
+    const withoutDate: Partial<typeof valid> = { ...valid };
+    delete withoutDate.desiredDate;
     expect(leadSubmissionSchema.parse(withoutDate).desiredDate).toBeNull();
   });
 
