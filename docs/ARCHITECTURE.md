@@ -1,10 +1,11 @@
 # Seni Bina
 
-LensaRent ialah sistem tempahan sewaan kamera single-tenant: laman awam, wizard tempahan,
-bayaran online dan panel admin. Dokumen ini menerangkan bentuk sistem; sebab di sebalik
-setiap pilihan ada dalam [DECISIONS.md](DECISIONS.md).
+LensaRent ialah sistem tempahan sewaan kamera single-tenant: laman awam, borang minat,
+panel admin, dan kemudian tempahan dengan bayaran online. Sebab di sebalik setiap pilihan
+ada dalam [DECISIONS.md](DECISIONS.md).
 
-**Status:** Fasa 0 dan Fasa 1 siap (belum dideploy). Bahagian bertanda _(Fasa 2)_ belum dibina.
+**Status:** Fasa 0 dan Fasa 1 siap, belum dideploy. Stack bertukar ke Cloudflare D1 +
+Access pada 18 Nov 2026 (ADR-017/018). Bahagian bertanda _(Fasa 2)_ belum dibina.
 
 ## Gambaran
 
@@ -12,140 +13,106 @@ setiap pilihan ada dalam [DECISIONS.md](DECISIONS.md).
             Pelanggan / Admin (browser)
                        │  HTTPS, satu origin
                        ▼
-        ┌──────────────────────────────────┐
-        │        Cloudflare Worker         │
-        │                                  │
-        │  /api/*  ──► kod Worker          │──► CHIP (bayaran)        (Fasa 2)
-        │  lain-lain ► aset statik         │──► Email API (outbox)    (Fasa 2)
-        │  cron    ──► tugas berjadual     │──► Turnstile siteverify  (Fasa 1)
-        └───────────────┬──────────────────┘
-                        │  REST + token service account
-                        ▼
-        ┌──────────────────────────────────┐
-        │  Firebase (asia-southeast1)      │
-        │  Firestore · Auth · Storage      │
-        │  Security Rules: deny-all        │
-        └──────────────────────────────────┘
+        ┌──────────────────────────────────────┐
+        │ Cloudflare                           │
+        │  Access ── melindungi /admin, /api/admin (OTP emel / Google)
+        │  Turnstile ── borang awam             │
+        │                                       │
+        │  Worker                               │──► CHIP (bayaran)      (Fasa 2)
+        │   /api/*  ──► kod Worker ──► D1 (SQL) │──► Email API (outbox)  (Fasa 2)
+        │   lain-lain ► aset statik             │
+        │   cron    ──► tugas berjadual (Fasa 2)│
+        └──────────────────────────────────────┘
 ```
 
-Tiada pelayan lain, tiada Cloud Functions. Satu Worker ialah satu-satunya compute.
+Satu akaun, satu platform: tiada pelayan lain, tiada Google Cloud.
 
-## Prinsip teras: Worker ialah satu-satunya lapisan penguatkuasaan
+## Prinsip teras
 
-Worker mengakses Firestore sebagai **service account**, dan akses service account
-**memintas semua Security Rules**. Firestore pula tiada constraint, trigger atau foreign
-key. Maka:
-
-- Setiap peraturan integriti — tiada double-booking, peralihan status yang sah, ledger
-  append-only, baki deposit sifar sebelum `completed` — disemak **dalam kod Worker**
-  sebelum `commit`.
-- Tiada client (termasuk panel admin) membaca atau menulis Firestore/Storage secara
-  terus. Security Rules menolak semua orang; ia wujud hanya untuk menutup akses terus
-  menggunakan konfigurasi web awam.
-- Jika kod Worker salah, tiada apa-apa di belakangnya yang akan menangkap kesilapan itu.
-  Sebab itu logik domain ditulis sebagai fungsi pure yang diuji habis-habisan, dan
-  laluan kritikal diuji terhadap emulator.
+- **Worker ialah lapisan penguatkuasaan utama.** Setiap peraturan integriti disemak dalam
+  kod sebelum menulis: tiada double-booking, peralihan status yang sah, ledger
+  append-only, baki deposit sifar sebelum `completed`.
+- **D1 menyokong dari belakang.** Kunci primer, `CHECK` dan trigger menolak data yang tidak
+  sah walaupun kod tersilap. Contohnya, double-booking dihalang oleh PRIMARY KEY.
+- **Tiada client menyentuh pangkalan data.** Semua melalui `/api/*`.
+- **Logik domain ialah fungsi pure** dalam `packages/shared`, diuji habis-habisan dan
+  dikongsi oleh pelayan dan browser.
 
 ## Komponen
 
 ### `packages/shared` — logik domain
 
-Fungsi pure tanpa I/O, dikongsi oleh web dan Worker. Satu-satunya dependency ialah zod.
+Fungsi pure tanpa I/O. Satu-satunya dependency ialah zod.
 
-| Modul                | Tanggungjawab                                             |
-| -------------------- | --------------------------------------------------------- |
-| `money.ts`           | Wang sebagai integer sen; tolak float; `formatRM`         |
-| `time.ts`            | Masa Malaysia (UTC+8 tetap); tarikh kalendar `yyyy-MM-dd` |
-| `duration.ts`        | `rentalDays`, buffer, hari yang dikunci, validasi tempoh  |
-| `pricing.ts`         | Harga sewa, add-on, meetup, diskaun, deposit → `quote()`  |
-| `overlap.ts`         | Pertindihan julat tarikh dan selang masa                  |
-| `stateMachine.ts`    | Jadual peralihan status tempahan; `canTransition`         |
-| `ledger.ts`          | Jenis entri ledger; `depositBalanceSen`                   |
-| `lateFee.ts`         | Cadangan caj lewat pulang                                 |
-| `cancellation.ts`    | Hasil pembatalan mengikut polisi                          |
-| `schemas.ts`         | Skema zod: primitif, enum, setiap dokumen `settings/*`    |
-| `defaultSettings.ts` | Nilai awal `settings/*`                                   |
+| Modul                              | Tanggungjawab                                           |
+| ---------------------------------- | ------------------------------------------------------- |
+| `money.ts`                         | Wang sebagai integer sen; `formatRM`                    |
+| `time.ts`                          | Masa Malaysia (UTC+8); tarikh kalendar                  |
+| `duration.ts`                      | `rentalDays`, buffer, hari dikunci, validasi tempoh     |
+| `pricing.ts`                       | `quote()`: sewa, add-on, meetup, diskaun, deposit       |
+| `overlap.ts`                       | Pertindihan julat                                       |
+| `stateMachine.ts`                  | Peralihan status tempahan; `canTransition`              |
+| `ledger.ts`                        | Jenis entri; `depositBalanceSen`                        |
+| `lateFee.ts`, `cancellation.ts`    | Caj lewat; hasil pembatalan                             |
+| `phone.ts`                         | Nombor bimbit Malaysia → E.164; pautan WhatsApp         |
+| `leads.ts`, `leadOptions.ts`       | Skema borang minat; label BM (tanpa zod, untuk browser) |
+| `schemas.ts`, `defaultSettings.ts` | Skema dan nilai awal `settings`                         |
 
 ### `apps/worker` — Cloudflare Worker
 
-| Fail                                      | Tanggungjawab                                                                                           |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`, `src/app.ts`              | Titik masuk; senarai laluan; sempadan ralat                                                             |
-| `src/services.ts`                         | Perkhidmatan setiap permintaan (Firestore, Turnstile, hasher, log masuk, ID token); diganti dalam ujian |
-| `src/routes/*.ts`                         | Handler: `leads`, `adminSession`, `adminLeads`, pengawal `adminAuth`                                    |
-| `src/lib/turnstile.ts`                    | Pengesahan Turnstile (siteverify)                                                                       |
-| `src/lib/rateLimit.ts`                    | Kaunter had kadar di Firestore (ADR-007)                                                                |
-| `src/lib/identityToolkit.ts`              | Log masuk Firebase Auth melalui REST; operasi admin untuk skrip                                         |
-| `src/lib/idToken.ts`                      | Pengesahan ID token dengan `jose`                                                                       |
-| `src/lib/sessions.ts`                     | Sesi admin (cookie HttpOnly, hash di Firestore)                                                         |
-| `src/lib/crypto.ts`, `csv.ts`, `audit.ts` | HMAC/token rawak, eksport CSV selamat, entri audit                                                      |
-| `src/router.ts`                           | Padanan laluan (`URLPattern`), 404/405                                                                  |
-| `src/lib/env.ts`                          | Validasi binding; menolak hos emulator di staging/production                                            |
-| `src/lib/googleAuth.ts`                   | JWT service account (Web Crypto) → access token OAuth2                                                  |
-| `src/lib/firestoreValues.ts`              | Codec nilai JS ↔ JSON bertaip Firestore                                                                 |
-| `src/lib/firestore.ts`                    | Klien REST: `get`, `getAll`, `query`, `commit`, `runTransaction`                                        |
-| `src/lib/availabilityLocks.ts`            | `acquireDayLocks`, `releaseDayLocks`                                                                    |
-| `src/lib/logger.ts`                       | Log JSON berstruktur dengan redaksi PII                                                                 |
-| `src/lib/http.ts`                         | Respons JSON, header keselamatan, katalog ralat                                                         |
+| Fail                                                                  | Tanggungjawab                                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `migrations/*.sql`                                                    | Skema D1 (lihat [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md))                                   |
+| `src/index.ts`, `src/app.ts`                                          | Titik masuk, senarai laluan, sempadan ralat                                                 |
+| `src/services.ts`                                                     | Perkhidmatan setiap permintaan (D1, Turnstile, hasher, pengesah admin); diganti dalam ujian |
+| `src/routes/*.ts`                                                     | `leads`, `adminLeads`, pengawal `adminAuth`, `validation`                                   |
+| `src/lib/env.ts`                                                      | Validasi binding; menolak log masuk dev di staging/production                               |
+| `src/lib/access.ts`                                                   | Pengesahan JWT Cloudflare Access (`jose`) + senarai emel admin                              |
+| `src/lib/availabilityLocks.ts`                                        | `acquireDayLocks` / `releaseDayLocks` (satu batch atomik)                                   |
+| `src/lib/rateLimit.ts`                                                | Kaunter had kadar dalam D1                                                                  |
+| `src/lib/db.ts`, `audit.ts`                                           | Helper D1 (konflik unik, ID); entri audit                                                   |
+| `src/lib/turnstile.ts`, `crypto.ts`, `csv.ts`, `http.ts`, `logger.ts` | Turnstile, HMAC, CSV selamat, respons/ralat, log diredaksi                                  |
 
-Endpoint semasa: `GET /api/health`, `POST /api/leads`, `/api/admin/session` (POST/GET/DELETE),
-`GET /api/admin/leads`, `GET /api/admin/leads/export`, `PUT /api/admin/leads/:id`. Lihat
-[API_SPECIFICATION.md](API_SPECIFICATION.md).
+Endpoint: lihat [API_SPECIFICATION.md](API_SPECIFICATION.md).
 
 ### `apps/web` — laman statik
 
-Vite multi-halaman, TypeScript strict, tanpa framework UI, CSS biasa (ADR-015).
+Vite multi-halaman, TypeScript, tanpa framework UI (ADR-015).
 
-| Bahagian         | Kandungan                                                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `src/pages/*.ts` | Setiap halaman sebagai fungsi yang memulangkan HTML (landing, terma, privasi, polisi, panduan, soalan lazim, 404, admin) |
-| `src/content/`   | `facts.ts` (angka daripada settings), `site.ts` (teks BM; `draft()` untuk yang belum disahkan)                           |
-| `src/render/`    | Templat `html` yang meng-escape, susun atur, pengawal draf                                                               |
-| `src/main.ts`    | Kalkulator harga + borang minat (Turnstile dimuat malas)                                                                 |
-| `src/admin.ts`   | Panel admin: log masuk, leads, status, nota, WhatsApp, CSV                                                               |
-| `vite.config.ts` | Menjana HTML, `robots.txt`, `sitemap.xml`; menolak build production yang belum sedia                                     |
-
-Mod build: `staging` (lalai `pnpm build`: banner DRAF, `noindex`) dan `production`
-(`build:production`: gagal jika ada draf, kunci ujian Turnstile, atau tiada
-`VITE_SITE_ORIGIN`).
-
-### `scripts`
-
-`grant-admin.ts` — beri / tarik balik claim `admin` (dan tamatkan sesi). Berjalan terus
-dengan Node (ADR-016).
-
-### `firebase` — rules dan emulator
-
-`firestore.rules` dan `storage.rules` (deny-all), `firestore.indexes.json`, konfigurasi
-emulator, dan ujian rules.
+| Bahagian         | Kandungan                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `src/pages/*.ts` | Setiap halaman sebagai fungsi yang memulangkan HTML                                  |
+| `src/content/`   | `facts.ts` (angka daripada settings), `site.ts` (teks BM; `draft()`)                 |
+| `src/render/`    | Templat `html` yang meng-escape, susun atur, pengawal draf                           |
+| `src/main.ts`    | Kalkulator harga + borang minat (Turnstile dimuat malas)                             |
+| `src/admin.ts`   | Panel admin: leads, status, nota, WhatsApp, CSV                                      |
+| `vite.config.ts` | Menjana HTML, `robots.txt`, `sitemap.xml`; menolak build production yang belum sedia |
 
 ## Aliran permintaan
 
-1. Cloudflare menerima permintaan. Laluan selain `/api/*` dihidang terus daripada aset
-   statik (`run_worker_first = ["/api/*"]`), dengan header daripada fail `_headers`.
-2. `/api/*` sampai ke Worker. `loadConfig` mengesahkan binding; router memilih handler.
-3. Handler mengesahkan input (zod), menjalankan logik domain (`packages/shared`), dan
-   membina senarai write.
-4. `Firestore.commit` menghantar semua write dalam satu panggilan atomik. Precondition
-   yang gagal membatalkan keseluruhan commit.
-5. Sebarang ralat tidak dijangka → respons `500` generik dalam BM; butiran (diredaksi)
+1. Cloudflare menerima permintaan. Untuk `/admin*` dan `/api/admin*`, **Access** meminta
+   log masuk dahulu, kemudian menambah JWT bertandatangan pada permintaan.
+2. Laluan selain `/api/*` dihidang terus daripada aset statik, dengan header daripada
+   `_headers`.
+3. `/api/*` sampai ke Worker. `loadConfig` mengesahkan binding, dan router memilih handler.
+4. Handler mengesahkan input (zod), mengesahkan admin jika perlu (`requireAdmin`:
+   JWT + emel + Origin), menjalankan logik domain, dan menulis ke D1. Tulisan yang
+   berkaitan dihantar dalam satu `batch` (satu transaksi).
+5. Ralat tidak dijangka menghasilkan `500` generik dalam BM; butiran diredaksi dan dihantar
    ke log.
 
 ## Persekitaran
 
-|               | Lokal                       | Staging                           | Production                         |
-| ------------- | --------------------------- | --------------------------------- | ---------------------------------- |
-| `ENVIRONMENT` | `development` / `test`      | `staging`                         | `production`                       |
-| Firestore     | Emulator (`demo-lensarent`) | Projek Firebase staging           | Projek Firebase production         |
-| Kelayakan     | Tiada (emulator)            | Secret `FIREBASE_SERVICE_ACCOUNT` | Secret berasingan                  |
-| Deploy        | `wrangler dev`              | `wrangler deploy --env staging`   | `wrangler deploy --env production` |
-
-Staging tidak pernah mengandungi data sebenar. Rahsia hanya dalam Worker secrets dan
-GitHub Secrets.
+|               | Lokal                   | Staging                         | Production                         |
+| ------------- | ----------------------- | ------------------------------- | ---------------------------------- |
+| `ENVIRONMENT` | `development` / `test`  | `staging`                       | `production`                       |
+| D1            | Tempatan (`.wrangler/`) | `lensarent-staging`             | `lensarent-production`             |
+| Admin         | `ACCESS_DEV_EMAIL`      | Cloudflare Access               | Cloudflare Access                  |
+| Deploy        | `pnpm dev`              | `wrangler deploy --env staging` | `wrangler deploy --env production` |
 
 ## Apa yang belum ada
 
-| Fasa | Kandungan                                                                                             |
-| ---- | ----------------------------------------------------------------------------------------------------- |
-| 2    | Ketersediaan, hold, checkout CHIP, webhook, halaman status, operasi admin, outbox email, cron, backup |
-| 3    | Laporan, kod referral, automasi retention                                                             |
+| Fasa | Kandungan                                                                                                         |
+| ---- | ----------------------------------------------------------------------------------------------------------------- |
+| 2    | Ketersediaan, hold, checkout CHIP, webhook, halaman status, operasi admin, outbox email, cron, backup luar talian |
+| 3    | Laporan, kod referral, automasi retention                                                                         |

@@ -25,15 +25,16 @@ Badan permintaan dan respons dalam JSON (`application/json`), kecuali eksport CS
   tidak dikenali ditolak.
 - **Respons** membawa `Cache-Control: no-store` dan header keselamatan (`lib/http.ts`).
 - **Had kadar** dijawab `429` dengan `Retry-After` (saat).
-- **Admin**: cookie sesi `__Host-lensarent_admin` (HttpOnly, Secure, SameSite=Strict).
-  Permintaan admin yang mengubah keadaan mesti membawa `Origin` yang sama dengan laman.
+- **Admin**: `/admin/*` dan `/api/admin/*` dilindungi **Cloudflare Access**. Worker
+  mengesahkan header `Cf-Access-Jwt-Assertion` (tandatangan, issuer, AUD, tamat tempoh)
+  dan menyemak emel dalam `ADMIN_EMAILS`. Permintaan admin yang mengubah data mesti
+  membawa `Origin` yang sama dengan laman.
 
 | Kod                      | HTTP | Bila                                                    |
 | ------------------------ | ---- | ------------------------------------------------------- |
 | `VALIDATION_FAILED`      | 400  | Input tidak sah (dengan `fields`)                       |
 | `INVALID_JSON`           | 400  | Badan bukan JSON yang sah                               |
 | `UNAUTHENTICATED`        | 401  | Tiada sesi admin yang sah                               |
-| `LOGIN_FAILED`           | 401  | Log masuk gagal (sebab tidak didedahkan)                |
 | `TURNSTILE_FAILED`       | 403  | Pengesahan Turnstile gagal                              |
 | `FORBIDDEN_ORIGIN`       | 403  | Permintaan admin bukan dari origin sendiri              |
 | `NOT_FOUND`              | 404  | Laluan atau rekod tidak wujud                           |
@@ -82,23 +83,12 @@ had per IP (10/jam) dan per telefon (3/hari) → simpan.
 
 ## Admin
 
-### `POST /api/admin/session` — log masuk
+Log masuk dan log keluar diuruskan oleh Cloudflare Access (log keluar:
+`/cdn-cgi/access/logout`). Tiada endpoint log masuk dalam API.
 
-`{ "email": "…", "password": "…" }`
+### `GET /api/admin/me`
 
-`200` → `{ "email": "admin@contoh.my", "expiresAt": "…" }` dengan `Set-Cookie`.
-
-Semua kegagalan (kata laluan salah, akaun tiada, akaun dinyahaktif, bukan admin, badan
-tidak sah) → `401 LOGIN_FAILED` yang sama. Had: 10 / 15 min per IP, 5 / 15 min per emel
-(`429`). `403 FORBIDDEN_ORIGIN` jika `Origin` lain.
-
-### `GET /api/admin/session`
-
-`200` → `{ "email", "expiresAt", "idleExpiresAt" }` · `401`
-
-### `DELETE /api/admin/session` — log keluar
-
-`204` dengan cookie dikosongkan. Sesi dipadam di pelayan. Perlu `Origin` sama.
+`200` → `{ "email": "admin@contoh.my" }` · `401`
 
 ### `GET /api/admin/leads`
 
@@ -127,11 +117,12 @@ tidak sah) → `401 LOGIN_FAILED` yang sama. Had: 10 / 15 min per IP, 5 / 15 min
       "updatedAt": "2026-11-12T07:47:00.000Z"
     }
   ],
-  "nextBefore": "2026-11-12T07:47:00.000Z"
+  "nextBefore": "2026-11-12T07:47:00.000Z~Xk2pQ9LmN4vR7sT1uW3y"
 }
 ```
 
-Paling baharu dahulu. `nextBefore` ialah `null` pada halaman terakhir.
+Paling baharu dahulu (`created_at`, kemudian `id`, jadi lead dengan cap masa sama tidak
+hilang atau berulang antara halaman). `nextBefore` ialah `null` pada halaman terakhir.
 `400` untuk penapis tidak sah · `401`
 
 ### `GET /api/admin/leads/export`
@@ -145,5 +136,5 @@ Sel yang bermula dengan `= + - @` diteutralkan.
 
 `{ "status": "contacted" }`, `{ "notes": "…" }`, atau kedua-duanya (nota ≤ 2,000 aksara).
 
-`200` → `{ "ok": true }`. Entri `auditLogs` (nama medan yang berubah sahaja) ditulis dalam
-commit yang sama. `400` · `401` · `403 FORBIDDEN_ORIGIN` · `404`
+`200` → `{ "ok": true }`. Entri `audit_logs` (nama medan yang berubah sahaja) ditulis dalam
+transaksi yang sama, dan hanya jika lead itu wujud. `400` · `401` · `403 FORBIDDEN_ORIGIN` · `404`

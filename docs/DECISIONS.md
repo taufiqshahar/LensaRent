@@ -4,30 +4,39 @@ Rekod ringkas setiap keputusan teknikal: apa yang diputuskan, sebab, dan apa yan
 Jika sesuatu di sini bercanggah dengan `CLAUDE_CODE_MASTER_PROMPT.md`, **dokumen ini yang
 terpakai** — ia mencatat apa yang disahkan melalui percubaan sebenar.
 
-Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksana fasa kemudian
+Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksana fasa kemudian ·
+🔁 digantikan (disimpan untuk sejarah)
 
-| #   | Keputusan                                                     | Status    |
-| --- | ------------------------------------------------------------- | --------- |
-| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin`   | ✅        |
-| 002 | Kunci slot: dokumen-per-hari dalam satu commit atomik         | ✅        |
-| 003 | Bacaan admin melalui Worker; Security Rules deny-all          | ✅        |
-| 004 | MFA admin                                                     | ⏳        |
-| 005 | Pelan Firebase & Cloudflare, anggaran kos                     | ⏳        |
-| 006 | Alat ujian dan versi yang dipin                               | ✅        |
-| 007 | Rate limiting dua lapis                                       | ✅        |
-| 008 | Satu Cron Trigger, agihan dalam kod                           | 📌 Fasa 2 |
-| 009 | Header keselamatan aset statik                                | ✅        |
-| 010 | Codec Firestore menolak nombor bukan integer                  | ✅        |
-| 011 | Cache token: nilai sahaja, tidak pernah promise               | ✅        |
-| 012 | `ABORTED` sentiasa dicuba semula                              | ✅        |
-| 013 | Log masuk admin melalui Worker + sesi Worker sendiri          | ✅        |
-| 014 | Data lead: hash telefon & IP, persetujuan berversi            | ✅        |
-| 015 | Laman dijana pada masa build daripada settings; pengawal draf | ✅        |
-| 016 | `grant-admin` berjalan terus dengan Node                      | ✅        |
+> **18 Nov 2026 — stack bertukar.** Atas permintaan pemilik ("sistem simple"), Firebase
+> digantikan dengan **Cloudflare D1** (data) dan **Cloudflare Access** (log masuk admin).
+> Semuanya kini dalam satu akaun Cloudflare. Lihat ADR-017, 018 dan 019. ADR yang bertanda 🔁
+> menerangkan reka bentuk Firebase sebelum ini.
+
+| #   | Keputusan                                                     | Status       |
+| --- | ------------------------------------------------------------- | ------------ |
+| 001 | Firestore melalui REST + Web Crypto, bukan `firebase-admin`   | 🔁 017       |
+| 002 | Kunci slot: satu rekod per unit per hari, satu transaksi      | ✅ (D1: 017) |
+| 003 | Tiada client akses pangkalan data terus; admin melalui Worker | ✅           |
+| 004 | MFA admin                                                     | ✅ 018       |
+| 005 | Pelan & anggaran kos                                          | ⏳           |
+| 006 | Alat ujian dan versi yang dipin                               | ✅           |
+| 007 | Rate limiting dua lapis                                       | ✅           |
+| 008 | Satu Cron Trigger, agihan dalam kod                           | 📌 Fasa 2    |
+| 009 | Header keselamatan aset statik                                | ✅           |
+| 010 | Codec Firestore menolak nombor bukan integer                  | 🔁 017       |
+| 011 | Cache kunci/token: nilai sahaja, tidak pernah promise         | ✅           |
+| 012 | `ABORTED` sentiasa dicuba semula                              | 🔁 017       |
+| 013 | Log masuk admin melalui Worker + sesi Worker sendiri          | 🔁 018       |
+| 014 | Data lead: hash telefon & IP, persetujuan berversi            | ✅           |
+| 015 | Laman dijana pada masa build daripada settings; pengawal draf | ✅           |
+| 016 | `grant-admin` berjalan terus dengan Node                      | 🔁 018       |
+| 017 | Cloudflare D1 sebagai pangkalan data                          | ✅           |
+| 018 | Cloudflare Access untuk log masuk admin                       | ✅           |
+| 019 | Google Sheet: paparan sahaja, belum dibina                    | ⏳           |
 
 ---
 
-## ADR-001 — Firestore melalui REST + Web Crypto
+## ADR-001 — Firestore melalui REST + Web Crypto 🔁
 
 **Keputusan.** Worker bercakap dengan Firestore melalui REST API
 (`https://firestore.googleapis.com/v1/...`). Ia menandatangani JWT service account dengan
@@ -119,6 +128,10 @@ berasingan.
 
 ## ADR-003 — Bacaan admin melalui Worker; Security Rules deny-all
 
+> **Selepas ADR-017:** prinsipnya kekal — tiada client membaca atau menulis pangkalan data
+> terus; semua melalui `/api/*`. D1 tidak boleh dicapai dari browser langsung, jadi tiada
+> "rules" untuk dikonfigurasi.
+
 **Konteks.** §10 membenarkan dua pendekatan untuk bacaan admin dan meminta satu dipilih
 secara konsisten: client SDK + rules, atau `GET /api/admin/*`.
 
@@ -141,7 +154,7 @@ admin pun ditolak (`firebase/test/rules.test.ts`, 225 ujian).
 
 ---
 
-## ADR-004 — MFA admin ⏳
+## ADR-004 — MFA admin ✅ (diselesaikan oleh ADR-018)
 
 **Cadangan: (a) naik taraf ke Identity Platform dan wajibkan TOTP.**
 
@@ -175,28 +188,28 @@ panel admin sebaiknya tidak.
 
 ## ADR-005 — Pelan & anggaran kos ⏳
 
-| Perkhidmatan       | Fasa 1 (leads sahaja)                           | Fasa 2 (tempahan)                |
-| ------------------ | ----------------------------------------------- | -------------------------------- |
-| Firebase           | **Spark** (percuma) mencukupi: Firestore + Auth | **Blaze** diperlukan             |
-| Cloudflare Workers | Free mencukupi                                  | **Paid (USD 5/bulan) disyorkan** |
+Selepas ADR-017/018 hanya satu akaun diperlukan: **Cloudflare**.
 
-**Kenapa Blaze untuk Fasa 2.** Cloud Storage for Firebase kini memerlukan Blaze untuk
-bucket baharu, dan export Firestore terurus (backup harian) memerlukan billing. Pada skala
-ini (puluhan tempahan sebulan, beberapa ratus foto) kos dijangka **≈ RM0–5 sebulan**. Set
-budget alert semasa mengaktifkan Blaze.
+| Perkhidmatan        | Pelan                                                                       | Anggaran       |
+| ------------------- | --------------------------------------------------------------------------- | -------------- |
+| Workers             | **Paid (USD 5/bulan) disyorkan** untuk production; Free cukup untuk staging | USD 5          |
+| D1                  | Termasuk; pelan percuma jauh melebihi keperluan                             | RM0            |
+| Access (Zero Trust) | Free, sehingga 50 pengguna                                                  | RM0            |
+| Turnstile           | Free                                                                        | RM0            |
+| Domain              | Pendaftaran tahunan                                                         | ikut pendaftar |
 
-**Kenapa Workers Paid.** Pelan Free menghadkan 10 ms CPU setiap permintaan. Tandatangan
-RSA, pengesahan JWT dan validasi zod boleh melepasi had itu sekali-sekala; kegagalan
-webhook bayaran bukan risiko yang berbaloi untuk dijimatkan USD 5.
+**Kenapa Workers Paid.** Pelan Free menghadkan 10 ms CPU setiap permintaan. Pengesahan
+JWT RSA, hash HMAC dan validasi zod boleh melepasi had itu sekali-sekala, dan webhook
+bayaran (Fasa 2) yang gagal bukan risiko yang berbaloi untuk menjimatkan USD 5. Paid juga
+memanjangkan D1 Time Travel daripada 7 kepada 30 hari.
 
-**Anggaran bacaan Firestore daripada cron** (Fasa 2): ~3,200 bacaan sehari, dalam had
-percuma 50,000 sehari.
+Firebase Blaze **tidak lagi diperlukan**. Foto serahan (Fasa 2) akan menggunakan
+Cloudflare R2, dengan peruntukan percuma 10 GB.
 
-⚠️ Angka kuota dan harga daripada sumber sekunder; sahkan di halaman rasmi sebelum
-production.
+⚠️ Angka daripada sumber sekunder kerana halaman harga rasmi disekat dalam sesi ini;
+sahkan sebelum production.
 
-**Tindakan pemilik:** luluskan pelan sebelum Fasa 2.
-
+**Tindakan pemilik:** setuju dengan Workers Paid untuk production.
 ---
 
 ## ADR-006 — Alat ujian dan versi yang dipin
@@ -264,7 +277,7 @@ fungsi pure yang diuji.
 
 ---
 
-## ADR-010 — Codec Firestore menolak nombor bukan integer
+## ADR-010 — Codec Firestore menolak nombor bukan integer 🔁
 
 Semua nombor dalam skema ialah integer (sen, bilangan, hari, jam). `encodeValue` melempar
 ralat untuk sebarang nombor bukan safe-integer, jadi float **tidak boleh** sampai ke
@@ -280,7 +293,7 @@ antara permintaan — di Workers, menunggu promise milik permintaan lain boleh t
 
 ---
 
-## ADR-012 — `ABORTED` sentiasa dicuba semula
+## ADR-012 — `ABORTED` sentiasa dicuba semula 🔁
 
 Apabila beberapa commit menyentuh dokumen yang sama serentak, Firestore boleh menjawab
 `ABORTED` (dalam emulator: "Transaction lock timeout" selepas 2 s) dan bukannya jawapan
@@ -291,7 +304,7 @@ automatik (backoff berjitter), jadi pemanggil sentiasa mendapat jawapan muktamad
 
 ---
 
-## ADR-013 — Log masuk admin melalui Worker, dengan sesi Worker sendiri
+## ADR-013 — Log masuk admin melalui Worker, dengan sesi Worker sendiri 🔁
 
 **Konteks.** Master prompt mencadangkan browser log masuk dengan Firebase Auth SDK dan
 menghantar ID token ke Worker pada setiap permintaan.
@@ -370,7 +383,7 @@ menggunakan `@lensarent/shared/...`.
 
 ---
 
-## ADR-016 — `grant-admin` berjalan terus dengan Node
+## ADR-016 — `grant-admin` berjalan terus dengan Node 🔁
 
 Skrip menggunakan type stripping Node 22.18+ (tiada `tsx`, tiada build) dan mengimport
 `googleAuth.ts` / `identityToolkit.ts` Worker terus — kedua-dua fail hanya menggunakan
@@ -380,23 +393,117 @@ memadam sesi admin akaun itu. Diuji terhadap emulator Auth + Firestore.
 
 ---
 
+## ADR-017 — Cloudflare D1 sebagai pangkalan data
+
+**Konteks.** Pemilik mahu sistem yang lebih ringkas dan mencadangkan Google Sheet. Sheet
+ditolak sebagai pangkalan data utama: tiada penulisan atomik (dua pelanggan boleh menempah
+hari yang sama), sel boleh disunting tanpa jejak, kuota API, dan risiko perkongsian fail
+yang mengandungi data peribadi. Pemilik bersetuju dengan Pilihan C: D1 + Access.
+
+**Keputusan.** Data dalam **Cloudflare D1** (SQLite terurus), dicipta dengan
+`--location apac`. Skema dalam `apps/worker/migrations/*.sql`, digunakan dengan
+`wrangler d1 migrations apply`.
+
+**Kenapa lebih baik daripada Firestore untuk bisnes ini.**
+
+|                     | Firestore (dahulu)                              | D1 (sekarang)                                                   |
+| ------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
+| Akaun               | Google Cloud + Cloudflare                       | Cloudflare sahaja                                               |
+| Kelayakan           | Service account JSON, tandatangan JWT sendiri   | Binding `DB` — tiada kunci                                      |
+| Kekangan            | Tiada; semua dalam kod                          | PRIMARY KEY, CHECK, trigger **sebagai lapisan kedua**           |
+| Anti double-booking | `exists=false` setiap dokumen dalam satu commit | PRIMARY KEY `(unit_id, date)` dalam satu batch                  |
+| Ujian               | Emulator Java, ~25 s                            | D1 tempatan dalam workerd, tiada pemasangan                     |
+| Backup              | Export terurus (perlu Blaze)                    | Time Travel (7 hari Free / 30 hari Paid) + `wrangler d1 export` |
+
+**Semantik yang disahkan.**
+
+- `db.batch([...])` ialah satu transaksi SQL: jika satu statement gagal, semuanya
+  di-rollback (dokumentasi D1, dipetik dalam sumber sekunder; **diuji terus** dalam
+  `test/integration/database.test.ts`).
+- Perangkap: UPDATE/DELETE yang tidak menjejaskan sebarang baris **bukan** kegagalan,
+  jadi batch tetap commit. Statement yang mesti berlaku bersama dikawal dengan syarat SQL
+  (contoh: audit dimasukkan `WHERE EXISTS` lead itu).
+- Pelanggaran PRIMARY KEY/UNIQUE dikesan oleh `isUniqueViolation` (diuji).
+- Ujian perlumbaan 20 permintaan × 50 pusingan: tepat seorang pemenang setiap pusingan,
+  tiada baris separa.
+
+**Akibat.**
+
+- ADR-001 (REST Firestore), 010 (codec), 012 (`ABORTED`) tidak lagi relevan.
+- Masa disimpan sebagai rentetan ISO-8601 UTC (boleh disusun, mudah dibaca di konsol D1).
+- Kunci dilepaskan dengan DELETE (sama seperti ADR-002).
+- `webhook_events`, `receipt_counters`, `ledger_entries` (dengan trigger append-only) dan
+  jadual tempahan ditambah dalam migrasi Fasa 2.
+- Had pelan percuma D1 (5 juta baris dibaca / 100 ribu ditulis sehari, 500 MB setiap
+  pangkalan data) jauh melebihi keperluan. ⚠️ Daripada sumber sekunder; sahkan di
+  halaman harga rasmi.
+
+---
+
+## ADR-018 — Cloudflare Access untuk log masuk admin
+
+**Keputusan.** Aplikasi Cloudflare Access melindungi `/admin/*` dan `/api/admin/*`. Admin
+log masuk dengan **kod sekali guna (OTP) ke emel** atau akaun Google; Access hanya
+menghantar kod kepada emel yang dibenarkan oleh polisinya.
+
+**Pertahanan berlapis.** Worker **tidak** bergantung pada konfigurasi Access sahaja. Setiap
+permintaan admin:
+
+1. mesti membawa header `Cf-Access-Jwt-Assertion` (bukan cookie — Cloudflare mengesyorkan
+   header kerana cookie tidak dijamin dihantar);
+2. JWT disahkan dengan `jose`: tandatangan RS256 terhadap kunci pasukan di
+   `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, issuer pasukan, audience =
+   tag AUD aplikasi, tamat tempoh;
+3. emel mesti ada dalam `ADMIN_EMAILS` Worker;
+4. permintaan yang mengubah data mesti dari origin sendiri (CSRF).
+
+Laluan yang tersalah konfigurasi atau URL `workers.dev` tanpa Access → **401**. Kunci
+dicache sebagai nilai (ADR-011) dan diambil semula sekali apabila Cloudflare memutar kunci.
+
+**Kesan.**
+
+- **MFA (ADR-004) selesai**: OTP emel ialah faktor kedua berasaskan akses peti emel, dan
+  boleh diperketat dalam polisi Access (contoh: wajibkan Google dengan 2FA) tanpa kod.
+- Dibuang: log masuk Firebase, sesi Worker, had cubaan log masuk, `grant-admin`.
+  Menambah/membuang admin = ubah polisi Access **dan** `ADMIN_EMAILS`.
+- Log keluar: `/cdn-cgi/access/logout`.
+- Pembangunan tempatan: `ACCESS_DEV_EMAIL` (ditolak oleh Worker di staging/production).
+- Pelan percuma Zero Trust: sehingga 50 pengguna. ⚠️ Sumber sekunder; sahkan.
+- ⚠️ Belum diuji dengan Access sebenar (perlukan akaun). Semakan pertama selepas deploy staging.
+
+---
+
+## ADR-019 — Google Sheet sebagai paparan sahaja ⏳
+
+Pemilik suka melihat data dalam Sheet. D1 kekal sumber kebenaran; Sheet hanya cermin.
+
+**Sekarang:** panel admin → "Eksport CSV" → buka atau import dalam Google Sheets.
+
+**Belum dibina (perlu keputusan):** penyegerakan automatik. Pilihan paling ringkas ialah
+URL CSV rahsia (token panjang, boleh ditukar) yang dibaca oleh `IMPORTDATA` dalam Sheet.
+Trade-off: sesiapa yang memegang URL itu boleh membaca nama dan telefon pelanggan. Ia
+tidak dilindungi Access kerana pelayan Google yang mengambilnya. Pilihan lain (Sheets API)
+memerlukan semula service account Google, bertentangan dengan matlamat "Cloudflare sahaja".
+
+---
+
 ## Dependency & justifikasi
 
-| Pakej                                                                                           | Di mana        | Sebab                                                                                                                                        |
-| ----------------------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `zod`                                                                                           | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0                                                                            |
-| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev)     | TS strict, lint, format                                                                                                                      |
-| `vitest`, `@vitest/coverage-v8`                                                                 | dev            | Ujian + gate coverage                                                                                                                        |
-| `@cloudflare/vitest-plugin`                                                                     | worker (dev)   | Jalankan ujian dalam workerd                                                                                                                 |
-| `wrangler`, `@cloudflare/workers-types`                                                         | worker (dev)   | Dev lokal, deploy, jenis runtime                                                                                                             |
-| `vite`                                                                                          | web (dev)      | Build laman statik                                                                                                                           |
-| `firebase-tools`                                                                                | root (dev)     | Emulator Suite, deploy rules                                                                                                                 |
-| `@firebase/rules-unit-testing`, `firebase`                                                      | firebase (dev) | Ujian Security Rules                                                                                                                         |
-| `jose`                                                                                          | worker         | Pengesahan ID token Firebase (RS256 + JWKS). Kod kritikal keselamatan: guna pustaka yang diuji luas, tanpa dependency, berasaskan Web Crypto |
+| Pakej                                                                                           | Di mana        | Sebab                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zod`                                                                                           | shared, worker | Validasi input & settings; satu-satunya dependency runtime Fasa 0                                                                                                                        |
+| `typescript`, `eslint`, `typescript-eslint`, `@eslint/js`, `eslint-config-prettier`, `prettier` | root (dev)     | TS strict, lint, format                                                                                                                                                                  |
+| `vitest`, `@vitest/coverage-v8`                                                                 | dev            | Ujian + gate coverage                                                                                                                                                                    |
+| `@cloudflare/vitest-plugin`                                                                     | worker (dev)   | Jalankan ujian dalam workerd                                                                                                                                                             |
+| `wrangler`, `@cloudflare/workers-types`                                                         | worker (dev)   | Dev lokal, deploy, jenis runtime                                                                                                                                                         |
+| `vite`                                                                                          | web (dev)      | Build laman statik                                                                                                                                                                       |
+| `firebase-tools`                                                                                | root (dev)     | Emulator Suite, deploy rules                                                                                                                                                             |
+| `@firebase/rules-unit-testing`, `firebase`                                                      | firebase (dev) | Ujian Security Rules                                                                                                                                                                     |
+| `jose`                                                                                          | worker         | Pengesahan JWT Cloudflare Access (RS256 + JWKS). Kod kritikal keselamatan: pustaka yang diuji luas, tanpa dependency, berasaskan Web Crypto; contoh rasmi Cloudflare juga menggunakannya |
 
-`firebase/auth` di browser **tidak** diperlukan lagi (ADR-013).
+Dibuang pada 18 Nov 2026: `firebase-tools`, `firebase`, `@firebase/rules-unit-testing`.
 
-**Nota saiz.** Bundle Worker ≈ 887 KiB (151 KiB gzip), kebanyakannya zod dan jose. Jauh di bawah
+**Nota saiz.** Bundle Worker ≈ 851 KiB (142 KiB gzip), kebanyakannya zod dan jose. Jauh di bawah
 had; jika perlu dikecilkan kemudian, `zod/mini` ialah pilihan.
 
 ---

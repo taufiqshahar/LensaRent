@@ -21,7 +21,6 @@ export const API_ERRORS = {
   VALIDATION_FAILED: { status: 400, message: "Sila semak maklumat yang diisi." },
   INVALID_JSON: { status: 400, message: "Permintaan tidak sah." },
   UNAUTHENTICATED: { status: 401, message: "Sila log masuk." },
-  LOGIN_FAILED: { status: 401, message: "Emel atau kata laluan salah." },
   TURNSTILE_FAILED: {
     status: 403,
     message: "Pengesahan keselamatan gagal. Sila muat semula halaman dan cuba lagi.",

@@ -1,141 +1,115 @@
 # Keselamatan & Privasi
 
-**Status:** kawalan bertanda ✅ sudah dilaksana dan diuji (Fasa 0–1). Yang bertanda 📌
-dirancang untuk fasa yang dinyatakan.
+**Status:** kawalan bertanda ✅ sudah dilaksana dan diuji. Yang bertanda 📌 dirancang untuk
+fasa yang dinyatakan. Stack: Cloudflare Workers + D1 + Access + Turnstile (ADR-017/018).
 
-## Model: Worker ialah satu-satunya lapisan penguatkuasaan
+## Model: Worker menguatkuasakan, pangkalan data menyokong
 
 ```
-Browser ──► Worker ──(service account)──► Firestore / Storage
-   │                                            ▲
-   └────────────── DITOLAK oleh rules ──────────┘
+Browser ──► Cloudflare (Access untuk /admin, Turnstile untuk borang) ──► Worker ──► D1
 ```
 
-1. **Worker menulis sebagai service account, yang memintas Security Rules.** Rules tidak
-   melindungi data daripada kesilapan dalam kod Worker. Firestore pula tiada constraint.
-   Setiap invarian mesti disemak dalam kod Worker sebelum `commit`.
-2. **Tiada client menyentuh Firestore atau Storage secara terus** — pelanggan mahupun
-   admin. Rules ialah `allow read, write: if false` untuk semua. Peranan rules hanyalah
-   menutup akses terus menggunakan konfigurasi web awam Firebase.
-3. **Akibatnya:** semakan kod Worker dan ujiannya ialah kawalan keselamatan utama, bukan
-   pelengkap.
+1. **Tiada client menyentuh pangkalan data.** D1 hanya boleh dicapai melalui binding Worker;
+   tiada URL awam dan tiada "rules" untuk tersalah konfigurasi.
+2. **Worker ialah lapisan penguatkuasaan utama**: validasi zod, logik domain dan semakan
+   sebelum setiap tulisan.
+3. **D1 ialah lapisan kedua**: PRIMARY KEY, `CHECK` dan trigger menolak apa yang tidak
+   sepatutnya wujud, walaupun ada pepijat dalam kod.
 
-| Invarian                               | Dikuatkuasakan oleh                                               | Status                        |
-| -------------------------------------- | ----------------------------------------------------------------- | ----------------------------- |
-| Tiada double-booking                   | `acquireDayLocks`: satu commit atomik, `exists=false` setiap hari | ✅                            |
-| Kunci hanya dilepaskan oleh pemiliknya | `releaseDayLocks` dalam transaction                               | ✅                            |
-| Peralihan status sah sahaja            | `canTransition` dalam transaction endpoint                        | ✅ logik · 📌 endpoint Fasa 2 |
-| Ledger append-only                     | Worker hanya memanggil `createDoc` pada `ledgerEntries`           | 📌 Fasa 2                     |
-| Baki deposit 0 sebelum `completed`     | `depositBalanceSen` dalam transaction                             | ✅ logik · 📌 endpoint Fasa 2 |
-| Webhook diproses sekali                | `createDoc` pada ID deterministik                                 | ✅ primitif · 📌 Fasa 2       |
-| Wang tanpa float                       | zod + codec Firestore menolak bukan integer                       | ✅                            |
+| Invarian                                               | Dikuatkuasakan oleh                                          | Status                        |
+| ------------------------------------------------------ | ------------------------------------------------------------ | ----------------------------- |
+| Tiada double-booking                                   | PK `(unit_id, date)` + satu batch atomik (`acquireDayLocks`) | ✅                            |
+| Kunci hanya dilepaskan oleh pemiliknya                 | `DELETE … WHERE booking_id/block_id = ?`                     | ✅                            |
+| Satu pemilik setiap kunci; hanya hold tamat            | `CHECK` dalam skema                                          | ✅                            |
+| Enum dan format sah                                    | zod + `CHECK`                                                | ✅                            |
+| Audit log append-only                                  | Trigger `BEFORE UPDATE/DELETE`                               | ✅                            |
+| Audit tidak direkod untuk perubahan yang tidak berlaku | `INSERT … WHERE EXISTS` dalam batch yang sama                | ✅                            |
+| Peralihan status sah sahaja                            | `canTransition` dalam endpoint                               | ✅ logik · 📌 endpoint Fasa 2 |
+| Ledger append-only                                     | Trigger (seperti `audit_logs`)                               | 📌 Fasa 2                     |
+| Baki deposit 0 sebelum `completed`                     | `depositBalanceSen`                                          | ✅ logik · 📌 endpoint Fasa 2 |
+| Webhook diproses sekali                                | PK `(provider, event_key)`                                   | 📌 Fasa 2                     |
+| Wang tanpa float                                       | zod + `CHECK (typeof(x) = 'integer')`                        | ✅ logik · 📌 jadual Fasa 2   |
 
-## Akses dan identiti
+## Akses admin (Cloudflare Access)
 
-- ✅ Security Rules deny-all untuk Firestore dan Storage; diuji untuk pelawat, pengguna
-  log masuk dan **admin log masuk** pada setiap koleksi.
-- ✅ Log masuk admin melalui Worker (ADR-013): ID token disahkan dengan `jose` (RS256,
-  JWKS Google, issuer, audience, expiry) dan `admin === true`; kemudian sesi Worker
-  sendiri dalam cookie `__Host-`, HttpOnly, Secure, SameSite=Strict. Firestore simpan
-  hash token sahaja. Sesi: 8 jam mutlak, 60 minit tidak aktif.
-- ✅ Setiap kegagalan log masuk memberi jawapan sama (tidak mendedahkan sama ada akaun
-  wujud atau adalah admin). Had: 10 / 15 min per IP, 5 / 15 min per emel.
-- ✅ CSRF: SameSite=Strict + semakan `Origin` pada setiap permintaan admin yang mengubah
-  keadaan + badan JSON sahaja.
-- ✅ Tiada signup awam: kunci API Firebase hanya di Worker, tidak pernah di browser. Admin
-  dijadikan melalui `scripts/grant-admin.ts` sahaja; `--revoke` menamatkan sesi serta-merta.
-- ⏳ MFA admin: menunggu keputusan pemilik (ADR-004; cadangan baharu: TOTP dalam Worker).
+- ✅ `/admin/*` dan `/api/admin/*` di belakang Cloudflare Access: OTP ke emel yang
+  dibenarkan, atau Google. Access tidak menghantar kod kepada emel yang tidak dibenarkan.
+- ✅ **Worker tidak mempercayai konfigurasi Access secara buta**. Setiap permintaan admin
+  memerlukan header `Cf-Access-Jwt-Assertion` yang sah: tandatangan RS256 terhadap kunci
+  pasukan, issuer, AUD aplikasi dan tamat tempoh (`jose`). Emel juga mesti ada dalam
+  `ADMIN_EMAILS`. Laluan tersalah konfigurasi atau `workers.dev` → 401.
+- ✅ Kunci awam Access dicache sebagai nilai dan diambil semula apabila Cloudflare
+  memutarnya. Jika kunci tidak dapat diambil, permintaan ditolak (fail closed).
+- ✅ CSRF: setiap permintaan admin yang mengubah data mesti membawa `Origin` sama, dan
+  badannya mesti JSON.
+- ✅ MFA: OTP emel / Google melalui Access (ADR-018). Boleh diperketat dalam polisi tanpa
+  menukar kod.
+- ✅ Tiada kata laluan admin disimpan atau diproses oleh sistem ini.
+- ✅ `ACCESS_DEV_EMAIL` (log masuk tempatan) ditolak oleh Worker di staging/production.
 
 ## Rahsia
 
-- ✅ Service account, kunci CHIP, kunci email, secret Turnstile, `PHONE_HASH_PEPPER`
-  hanya dalam Worker secrets / GitHub Secrets. `.dev.vars` di-gitignore; hanya
-  `.dev.vars.example` (tanpa nilai) dalam repo.
-- 📌 Fasa 1: service account production dan staging berasingan.
-- ✅ Worker enggan berjalan jika hos emulator (Firestore atau Auth) diset di staging/production,
-  dan hos emulator mesti loopback (emulator menerima sesiapa sahaja sebagai pemilik).
-- ✅ Ralat konfigurasi dan ralat auth menamakan binding sahaja, tidak pernah nilainya.
-  Respons ralat Google tidak diulang ke dalam log.
-- ✅ Imbasan rahsia (gitleaks) pada setiap push.
-- ✅ Tiada nilai sensitif disimpan di Firestore.
+- ✅ Hanya dua rahsia: `TURNSTILE_SECRET_KEY` dan `PHONE_HASH_PEPPER`, dalam Worker
+  secrets. Tiada service account dan tiada kunci API pihak ketiga.
+- ✅ `.dev.vars` di-gitignore; hanya `.dev.vars.example` (tanpa nilai sebenar) dalam repo.
+- ✅ Nilai Access (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ADMIN_EMAILS`) bukan rahsia; ia
+  disimpan dalam `wrangler.toml`.
+- ✅ Ralat konfigurasi menamakan binding sahaja, tidak pernah nilainya.
+- ✅ Imbasan rahsia (gitleaks) pada setiap push, ke atas seluruh sejarah.
 
-## Endpoint
+## Endpoint awam
 
-- ✅ Respons ralat generik dalam BM: `{ error: { code, message } }`. Tiada stack trace,
-  tiada butiran dalaman. Butiran pergi ke log yang diredaksi.
-- ✅ `GET /api/health` tidak menyentuh backend, jadi tidak boleh digunakan untuk
-  menaikkan kos.
-- ✅ Setiap query Firestore mesti mempunyai `limit` (maks 1000); tiada bacaan tanpa had.
-- ✅ Laluan dokumen disahkan (tiada segmen kosong, `.` atau `..`).
-- ✅ Turnstile (hostname + action disemak di staging/production) dan had kadar dua lapis
-  (ADR-007). zod `strictObject` pada semua input; badan ≤ 16 KiB, JSON sahaja.
+- ✅ Turnstile (hostname + action disemak di staging/production).
+- ✅ Had kadar dua lapis (ADR-007): 10 lead/jam per IP, 3/hari per telefon.
+- ✅ zod `strictObject` pada semua input; badan ≤ 16 KiB, JSON sahaja.
+- ✅ Respons ralat generik dalam BM; tiada stack trace dan tiada input dipantulkan.
+- ✅ Semua SQL menggunakan parameter terikat; syarat dinamik dibina daripada nilai yang
+  telah disahkan sahaja (`routes/adminLeads.ts`).
 - ✅ Eksport CSV meneutralkan formula (CSV injection).
-- 📌 Fasa 2: perbandingan token masa-malar; `lookupToken` 32 byte, hanya hash disimpan;
-  lookup dengan token salah → 404 generik.
+- 📌 Fasa 2: `lookupToken` 32 bait, hanya hash disimpan; token salah → 404 generik.
 
 ## Header keselamatan
 
-| Header                      | Aset statik (`_headers`)                        | API (`lib/http.ts`)                          |
-| --------------------------- | ----------------------------------------------- | -------------------------------------------- |
-| `Content-Security-Policy`   | `default-src 'self'` … `frame-ancestors 'none'` | `default-src 'none'; frame-ancestors 'none'` |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`           | sama                                         |
-| `X-Content-Type-Options`    | `nosniff`                                       | `nosniff`                                    |
-| `X-Frame-Options`           | `DENY`                                          | `DENY`                                       |
-| `Referrer-Policy`           | `strict-origin-when-cross-origin`               | `no-referrer`                                |
-| `Permissions-Policy`        | kamera, mikrofon, lokasi, bayaran dimatikan     | sama                                         |
-| `Cache-Control`             | —                                               | `no-store`                                   |
+| Header                      | Aset statik (`_headers`)                           | `/admin/*`          | API (`lib/http.ts`)  |
+| --------------------------- | -------------------------------------------------- | ------------------- | -------------------- |
+| `Content-Security-Policy`   | `'self'` + `challenges.cloudflare.com` (Turnstile) | `'self'` sahaja     | `default-src 'none'` |
+| `frame-ancestors`           | `'none'`                                           | `'none'`            | `'none'`             |
+| `Strict-Transport-Security` | 1 tahun, subdomain                                 | sama                | sama                 |
+| `X-Content-Type-Options`    | `nosniff`                                          | sama                | sama                 |
+| `Referrer-Policy`           | `strict-origin-when-cross-origin`                  | sama                | `no-referrer`        |
+| `Cache-Control`             | `/assets/*` immutable                              | `no-store`          | `no-store`           |
+| `X-Robots-Tag`              | —                                                  | `noindex, nofollow` | —                    |
 
-✅ Disahkan di `wrangler dev`. CSP laman awam membenarkan `challenges.cloudflare.com`
-(skrip + iframe Turnstile) sahaja; `/admin/*` lebih ketat (tiada pihak ketiga langsung),
-`no-store`, `noindex`. 📌 CHIP ditambah pada Fasa 2.
+✅ Disahkan di `wrangler dev`. ⚠️ CSP Turnstile belum diuji dengan widget sebenar (hos
+disekat dalam sesi pembangunan); sahkan di staging.
 
-⚠️ CSP Turnstile belum diuji dengan widget sebenar (hos disekat dalam sesi pembangunan).
-Sahkan pada staging; jika widget memerlukan lebih, tambah sumber Cloudflare yang
-spesifik sahaja.
-
-✅ **Tiada `innerHTML`** dalam `apps/web`: dikuatkuasakan oleh ESLint
-(`innerHTML`, `outerHTML`, `insertAdjacentHTML` dilarang). Rentetan dalam HTML di-escape
-semasa build.
+✅ **Tiada `innerHTML`** dalam `apps/web` (ESLint). HTML dijana pada masa build melalui
+templat yang meng-escape setiap nilai.
 
 ## Log
 
-✅ Logger berstruktur (`lib/logger.ts`) meredaksi dalam dua lapis:
-
-1. **Mengikut kunci** — medan seperti `name`, `phone*`, `email`, `idLast4`, `*token*`,
-   `address`, `notes`, `customerSnapshot`, `authorization`, `*secret*` digantikan
-   sepenuhnya.
-2. **Mengikut nilai** — setiap rentetan lain dibersihkan daripada email, nombor telefon
-   (antarabangsa, gaya wa.me, tempatan), JWT, token Bearer, blok private key dan rentetan
-   legap panjang.
-
-Kenal pasti rekod dengan `bookingId` / `refCode` sahaja. Stack trace hanya dalam
-development/test. Ujian snapshot membuktikan tiada PII yang ditanam sampai ke output.
+✅ Logger berstruktur meredaksi data mengikut kunci (nama, telefon, emel, token, alamat,
+nota, `ipHash`…) dan mengikut nilai (emel, nombor telefon, JWT, Bearer, private key,
+rentetan legap panjang). Rekod dikenal pasti dengan ID sahaja. Ujian snapshot membuktikan
+tiada PII yang ditanam sampai ke output.
 
 ## Privasi (PDPA)
 
-- **Tiada salinan atau foto MyKad, dan tiada nombor IC penuh** dalam sistem ini. Hanya 4
-  digit akhir, siapa mengesahkan, dan bila. Salinan fizikal untuk borang kertas diurus di
-  luar sistem.
-- Telefon disimpan sebagai E.164 dan sebagai `phoneHash` (HMAC-SHA256 dengan pepper)
-  untuk carian dan rate limit.
-- ✅ Persetujuan borang minat direkod dengan versi notis privasi dan masa (dari pelayan).
-- ✅ IP tidak pernah disimpan mentah; hanya HMAC untuk had kadar.
-- ⚠️ PDPA s.7(3): notis privasi perlu dalam BM **dan Inggeris**. Draf semasa BM sahaja —
-  untuk peguam.
-- 📌 Fasa 2: persetujuan T&C semasa tempahan.
-- 📌 Fasa 2/3: foto serahan dipadam 30 hari selepas baki deposit = 0 tanpa pertikaian.
-- ⚠️ Tempoh simpanan rekod kewangan: **perlu disahkan dengan akauntan** sebelum
-  automasi retention dibina.
+- **Tiada salinan atau foto MyKad, dan tiada nombor IC penuh.** Hanya 4 digit akhir (Fasa 2).
+- ✅ Persetujuan borang direkod dengan versi notis privasi dan masa (dari pelayan).
+- ✅ IP tidak pernah disimpan mentah; telefon disimpan untuk dihubungi, dengan hash untuk
+  had kadar.
+- ✅ Data di Cloudflare D1, rantau Asia Pasifik; notis privasi menyatakannya.
+- ⚠️ PDPA s.7(3): notis privasi perlu dalam BM **dan Inggeris**. Draf semasa BM sahaja.
+- ⚠️ Tempoh simpanan rekod kewangan: **perlu disahkan dengan akauntan**.
 - Audit log merekod nama medan yang berubah, bukan nilainya.
 
 ## Risiko terbuka
 
-| Risiko                                              | Mitigasi / status                                    |
-| --------------------------------------------------- | ---------------------------------------------------- |
-| Kesilapan kod Worker tidak ditangkap oleh Firestore | Logik pure + ujian emulator; semakan kod setiap fasa |
-| Emulator tidak menguatkuasakan composite index      | Semak dan tambah index bersama setiap query baharu   |
-| Akaun admin tanpa MFA                               | ⏳ ADR-004; mitigasi (b) dilaksana                   |
-| Amaran log masuk dari IP baharu belum ada           | Perlu outbox email (Fasa 2)                          |
-| Kandungan undang-undang ialah draf                  | Build production ditolak sehingga disahkan (ADR-015) |
-| Pertukaran token OAuth sebenar belum diuji          | Disahkan pada deploy staging pertama                 |
-| Tindakan GitHub dirujuk dengan tag major, bukan SHA | Pin ke SHA sebelum production                        |
+| Risiko                                                    | Mitigasi / status                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------- |
+| Access belum diuji dengan akaun sebenar                   | Semakan pertama selepas deploy staging                        |
+| Pepijat kod Worker                                        | Kekangan D1 sebagai lapisan kedua; ujian; semakan setiap fasa |
+| Kandungan undang-undang ialah draf                        | Build production ditolak sehingga disahkan                    |
+| Tindakan GitHub dirujuk dengan tag major, bukan SHA       | Pin ke SHA sebelum production                                 |
+| URL CSV rahsia untuk Google Sheet (jika dipilih, ADR-019) | Belum dibina; perlu keputusan pemilik                         |

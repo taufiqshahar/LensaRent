@@ -1,204 +1,107 @@
-# Skema Firestore
+# Skema Pangkalan Data (Cloudflare D1)
 
-Firestore (Native mode), lokasi `asia-southeast1`. Semua koleksi berada di peringkat
-atas. Dokumen ini ialah reka bentuk sasaran; lajur **Fasa** menunjukkan bila kod yang
-menulis koleksi itu dibina.
+D1 ialah SQLite terurus Cloudflare, dicipta di rantau Asia Pasifik (`--location apac`).
+Skema yang sebenar ialah fail migrasi dalam `apps/worker/migrations/`. Dokumen ini
+menerangkannya; jika bercanggah, **migrasi yang betul**.
 
-**Status Fasa 1:** koleksi yang ada kod penulis: `availabilityLocks` (Fasa 0), `leads`,
-`adminSessions`, `rateLimits` dan `auditLogs`. `settings/*` disahkan zod tetapi belum
-ditulis (nilai datang daripada `DEFAULT_SETTINGS`). Koleksi lain dimuktamadkan dengan skema
-zod pada fasanya.
+**Status:** Fasa 1. Jadual yang wujud: `leads`, `availability_locks`, `rate_limits`,
+`audit_logs`. Jadual Fasa 2 ditambah dalam migrasi baharu (senarai di bawah).
 
 ## Peraturan umum
 
-- **Firestore tidak mengesahkan apa-apa.** Tiada constraint, tiada unique index, tiada
-  foreign key. Setiap dokumen disahkan oleh zod di Worker sebelum ditulis.
-- Wang: integer sen, medan berakhiran `Sen`. Codec menolak nombor bukan integer.
-- Masa: Firestore Timestamp (`Date` dalam kod). Hari kalendar: rentetan `yyyy-MM-dd` (MYT).
-- `createdAt` / `updatedAt` ditulis oleh Worker dengan masa pelayan (`serverTimestamp()`).
-- ID dokumen: auto-id, kecuali koleksi yang menggunakan **ID deterministik** sebagai
-  kunci atau kunci idempotency.
-- Tiada nilai sensitif (kunci API, private key) disimpan di Firestore.
+- **Worker ialah lapisan penguatkuasaan utama**: input disahkan dengan zod sebelum ditulis.
+  Skema SQL menjadi **lapisan kedua**: PRIMARY KEY, `CHECK` untuk setiap enum dan format,
+  dan trigger untuk jadual append-only.
+- Jadual `STRICT`: SQLite menolak nilai dengan jenis yang salah.
+- Masa: rentetan ISO-8601 UTC yang ditulis Worker (`2026-11-18T08:00:00.000Z`). Ia boleh
+  disusun sebagai teks dan mudah dibaca di konsol D1. Hari kalendar ialah `yyyy-MM-dd` dalam
+  waktu Malaysia.
+- Wang (Fasa 2): `INTEGER` sen, dengan `CHECK (typeof(x) = 'integer')`.
+- ID: 20 aksara rawak (`newId()`) kecuali jika dinyatakan lain.
+- Pengecam peribadi yang menjadi kunci (telefon, IP) **sentiasa di-hash** dahulu (HMAC
+  dengan `PHONE_HASH_PEPPER`).
+- Transaksi: `db.batch([...])`. Lihat [DECISIONS.md, ADR-017](DECISIONS.md) untuk semantik
+  dan satu perangkapnya.
 
-## Koleksi
+## `leads` — borang minat
 
-| Koleksi                                   | ID                  | Fasa  |
-| ----------------------------------------- | ------------------- | ----- |
-| `settings/{key}`                          | Nama kunci          | 1–2   |
-| `leads/{leadId}`                          | auto                | 1     |
-| `units/{unitId}`                          | slug, cth. `unit01` | 2     |
-| `customers/{customerId}`                  | auto                | 2     |
-| `bookings/{bookingId}`                    | auto                | 2     |
-| `availabilityLocks/{unitId}_{yyyy-MM-dd}` | **deterministik**   | **0** |
-| `bookingEvents/{eventId}`                 | auto                | 2     |
-| `payments/{paymentId}`                    | auto                | 2     |
-| `ledgerEntries/{entryId}`                 | auto                | 2     |
-| `webhookEvents/{provider}_{eventKey}`     | **deterministik**   | 2     |
-| `notificationsOutbox/{notificationId}`    | auto                | 2     |
-| `receiptCounters/{year}`                  | tahun               | 2     |
-| `auditLogs/{logId}`                       | auto                | **1** |
-| `adminSessions/{sha256(token)}`           | **hash token**      | **1** |
-| `rateLimits/{rule}_{hash}_{window}`       | **deterministik**   | **1** |
+| Lajur                      | Jenis     | Kekangan                                                             |
+| -------------------------- | --------- | -------------------------------------------------------------------- |
+| `id`                       | TEXT PK   | 20 aksara                                                            |
+| `name`                     | TEXT      | 2–80 aksara                                                          |
+| `phone_e164`               | TEXT      | `+601…` (bimbit Malaysia)                                            |
+| `phone_hash`               | TEXT      | HMAC (`phone:`), untuk had kadar                                     |
+| `desired_date`             | TEXT NULL | `yyyy-MM-dd`; NULL = belum pasti                                     |
+| `usage`                    | TEXT      | `vlog` `travel` `event` `content` `family` `other`                   |
+| `source`                   | TEXT      | `tiktok` `instagram` `facebook` `whatsapp` `google` `friend` `other` |
+| `status`                   | TEXT      | `new` `contacted` `converted` `not_interested` `spam` (lalai `new`)  |
+| `notes`                    | TEXT      | ≤ 2,000 aksara; admin sahaja                                         |
+| `privacy_version`          | TEXT      | Versi notis privasi yang dipersetujui                                |
+| `consent_at`               | TEXT      | Masa persetujuan                                                     |
+| `created_at`, `updated_at` | TEXT      | ISO UTC                                                              |
 
-Tiada koleksi `admins`: status admin ialah custom claim `admin: true` pada akaun Firebase
-Auth.
+Index: `(created_at DESC, id DESC)`, `(status, created_at DESC, id DESC)`, `(phone_hash)`.
+Tiada IP mentah disimpan.
 
-### `settings/{key}`
+## `availability_locks` — anti double-booking
 
-`{ value: map, updatedBy, updatedAt }`. `value` disahkan oleh
-`settingsSchemas[key]` (`packages/shared/src/schemas.ts`).
+Satu baris per unit per hari. **Baris wujud = hari itu dikunci.**
 
-| Kunci             | Bentuk `value`                                                                                      |
-| ----------------- | --------------------------------------------------------------------------------------------------- |
-| `pricing`         | `{ fixedPrices: [{ days, priceSen }], dailyRateSen }`                                               |
-| `addOns`          | `{ items: [{ code, name, priceSen, maxQty, active, lensFilter }], lensFilterBase: { code, name } }` |
-| `meetupLocations` | `{ locations: [{ id, name, feeSen, active }] }`                                                     |
-| `handoverSlots`   | `{ slots: [{ id, label, daysOfWeek[], startTime, endTime, kinds[], locationIds[], active }] }`      |
-| `depositTiers`    | `{ new, verified, returning }`                                                                      |
-| `buffer`          | `{ normalHours, peakHours }`                                                                        |
-| `peakPeriods`     | `{ periods: [{ from, to, label? }] }`                                                               |
-| `holdMinutes`     | `{ minutes }`                                                                                       |
-| `minLeadHours`    | `{ hours }`                                                                                         |
-| `maxRentalDays`   | `{ days }`                                                                                          |
-| `lateFee`         | `{ graceMinutes, blockHours, perBlockSen, capPer24hSen }`                                           |
-| `cancellation`    | `{ fullRefundAboveHours, feeWindowFromHours, feeSen }`                                              |
-| `policyVersions`  | `{ terms, privacy, rentalPolicy }`                                                                  |
-| `businessInfo`    | `{ brandName, legalName, ssmNumber, address, phoneE164, whatsappE164, email }`                      |
+| Lajur             | Jenis                         | Nota                                           |
+| ----------------- | ----------------------------- | ---------------------------------------------- |
+| `unit_id`, `date` | TEXT, **PRIMARY KEY bersama** | Tuntutan kedua ke atas hari yang sama mustahil |
+| `kind`            | TEXT                          | `hold` `booking` `maintenance`                 |
+| `booking_id`      | TEXT NULL                     | Pemilik bagi `hold` / `booking`                |
+| `block_id`        | TEXT NULL                     | Pemilik bagi `maintenance`                     |
+| `hold_expires_at` | TEXT NULL                     | Wajib untuk `hold` sahaja                      |
+| `created_at`      | TEXT                          |                                                |
 
-Nilai awal: `packages/shared/src/defaultSettings.ts`. Tempoh retention (foto, data
-pelanggan) akan ditambah sebagai kunci baharu pada Fasa 2/3.
+`CHECK` memastikan tepat satu pemilik (booking **atau** blok), dan hanya `hold` yang ada
+masa tamat. Semua hari bagi satu tempahan dimasukkan dalam satu batch (`acquireDayLocks`);
+pelepasan ialah DELETE (`releaseDayLocks`). `WITHOUT ROWID`. Index separa pada `booking_id`.
 
-### `availabilityLocks/{unitId}_{yyyy-MM-dd}`
+## `rate_limits`
 
-Satu dokumen per unit per hari. **Kewujudan dokumen ialah kunci.**
+`key` (PK: `<rule>:<hash>:<window>`), `count` (≥ 1), `expires_at`. Satu upsert
+`… ON CONFLICT DO UPDATE SET count = count + 1 RETURNING count`. Baris tamat dipadam dalam
+batch yang sama melalui index `expires_at`. Lihat ADR-007.
 
-| Medan           | Jenis                                | Nota                            |
-| --------------- | ------------------------------------ | ------------------------------- |
-| `unitId`        | string                               |                                 |
-| `date`          | string `yyyy-MM-dd`                  | MYT                             |
-| `kind`          | `hold` \| `booking` \| `maintenance` |                                 |
-| `bookingId`     | string \| null                       | Pemilik bagi `hold` / `booking` |
-| `blockId`       | string \| null                       | Pemilik bagi `maintenance`      |
-| `holdExpiresAt` | Timestamp \| null                    | Hanya untuk `hold`              |
-| `createdAt`     | Timestamp                            | Masa pelayan                    |
+## `audit_logs`
 
-Berbeza daripada master prompt §4: tiada medan `active`. Kunci dilepaskan dengan
-**memadam** dokumen (ADR-002). `blockId` ditambah supaya blok penyelenggaraan mempunyai
-pemilik yang jelas.
+| Lajur                       | Nota                                           |
+| --------------------------- | ---------------------------------------------- |
+| `id`                        | PK                                             |
+| `actor_id`, `actor_email`   | Admin daripada Cloudflare Access (`sub`, emel) |
+| `action`                    | Contoh `lead.update`                           |
+| `target_table`, `target_id` | Rekod yang berubah                             |
+| `changed_fields`            | JSON nama medan sahaja, **tiada nilai**        |
+| `at`                        | ISO UTC                                        |
 
-### `units/{unitId}`
+**Append-only dikuatkuasakan oleh pangkalan data**: trigger `BEFORE UPDATE` dan
+`BEFORE DELETE` menolak sebarang perubahan (diuji).
 
-`name, model, serialNumber, status` (`active` / `maintenance` / `retired`),
-`accessories: [{ code, name, serial?, replacementPriceSen }]`.
+## Fasa 2 (migrasi akan datang)
 
-### `customers/{customerId}`
+Tidak dicipta lagi; reka bentuk mengikut master prompt §4, diterjemah ke SQL:
 
-`phoneHash` (HMAC-SHA256 nombor E.164 dengan pepper), `name, phoneE164, email, tier`
-(`new` / `verified` / `returning`), `completedCount, blocked, notes`.
+| Jadual                 | Nota utama                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `settings`             | `key` PK, `value` JSON (disahkan `settingsSchemas`), `updated_by`, `updated_at` |
+| `units`                | `status` CHECK (`active`/`maintenance`/`retired`); aksesori sebagai JSON        |
+| `customers`            | `phone_hash` **UNIQUE**: keunikan oleh pangkalan data, bukan lagi kod           |
+| `bookings`             | `ref_code` UNIQUE, `lookup_token_hash`, wang INTEGER sen, `status` CHECK        |
+| `booking_events`       | Append-only (trigger)                                                           |
+| `payments`             | `provider_ref` UNIQUE                                                           |
+| `ledger_entries`       | **Append-only (trigger)**, `amount_sen` INTEGER bertanda, `type` CHECK          |
+| `webhook_events`       | PK `(provider, event_key)`: INSERT kedua gagal → `already_processed`            |
+| `notifications_outbox` | `status` CHECK, `attempts`, `send_after`                                        |
+| `receipt_counters`     | `year` PK; `UPDATE … SET last_number = last_number + 1 RETURNING last_number`   |
 
-Keunikan `phoneHash` dikuatkuasakan oleh Worker (query + create dalam transaction).
+**Tiada imej MyKad dan tiada nombor IC penuh** — hanya 4 digit akhir dalam `bookings`.
 
-### `bookings/{bookingId}`
+## Mengubah skema
 
-`refCode, lookupTokenHash, unitId, customerId, customerSnapshot, pickupSlotId, pickupAt,
-pickupLocationId, returnSlotId, returnAt, returnSlotEnd, returnLocationId, rentalDays,
-addOns, priceBreakdown` (`rentalSen, addOnsSen, meetupSen, discountSen, depositSen,
-totalPayableSen`), `status, statusReason, holdExpiresAt, consent` (`termsVersion,
-privacyVersion, at, ipHash`), `verification` (`idLast4, verifiedBy, verifiedAt`),
-`handover, returnInspection, flags[]`.
-
-- `refCode`: pendek, rawak, tanpa aksara mengelirukan (cth. `PK-7F3K9Q`).
-- `lookupToken`: 32 byte rawak; hanya hash SHA-256 disimpan.
-- **Tiada imej MyKad dan tiada nombor IC penuh** — hanya 4 digit akhir.
-
-### `bookingEvents/{eventId}`
-
-`bookingId, fromStatus, toStatus, actorId, actorType` (`system` / `admin` / `webhook`),
-`reason, at`. Ditulis dalam commit yang sama dengan perubahan status.
-
-### `payments/{paymentId}`
-
-`bookingId, provider, providerRef, kind, expectedSen, paidSen, currency, status,
-rawStatus, paidAt`. Keunikan `providerRef` disemak oleh Worker.
-
-### `ledgerEntries/{entryId}`
-
-`bookingId, type, amountSen` (bertanda), `method` (`gateway` / `duitnow` / `cash`),
-`reference, note, createdBy, createdAt`.
-
-**Append-only.** Worker hanya mencipta; tidak pernah mengemas kini atau memadam.
-Pembetulan = entri reversal. Jenis: `RENTAL`, `ADD_ON`, `MEETUP_FEE`, `DISCOUNT`,
-`DEPOSIT_IN`, `DEPOSIT_REFUND`, `DEPOSIT_DEDUCTION`, `LATE_FEE`, `DAMAGE_CHARGE`,
-`CANCELLATION_FEE`, `REFUND`, `GATEWAY_FEE`.
-
-### `webhookEvents/{provider}_{eventKey}`
-
-`provider, eventKey, receivedAt, processedAt, result`. ID deterministik ialah kunci
-idempotency: `create` kedua gagal dengan `ALREADY_EXISTS` → `already_processed`.
-
-### `notificationsOutbox/{notificationId}`
-
-`channel` (`email`), `template, toAddress, payload, status` (`pending` / `sent` /
-`failed`), `attempts, lastError, sendAfter, sentAt`.
-
-### `receiptCounters/{year}`
-
-`lastNumber`. Dinaikkan dalam transaction untuk nombor resit berjujukan (`R-2026-00001`).
-
-### `leads/{leadId}`
-
-ID 20 aksara (format auto-id Firestore, dijana Worker). Skema: `leadDocumentSchema`
-(`packages/shared/src/leads.ts`).
-
-| Medan                    | Jenis          | Nota                                                                 |
-| ------------------------ | -------------- | -------------------------------------------------------------------- |
-| `name`                   | string         | 2–80 aksara                                                          |
-| `phoneE164`              | string         | `+601…`                                                              |
-| `phoneHash`              | string         | HMAC (`phone:`), untuk had kadar                                     |
-| `desiredDate`            | string \| null | `yyyy-MM-dd` MYT; null = belum pasti                                 |
-| `usage`                  | enum           | `vlog` `travel` `event` `content` `family` `other`                   |
-| `source`                 | enum           | `tiktok` `instagram` `facebook` `whatsapp` `google` `friend` `other` |
-| `status`                 | enum           | `new` → `contacted` / `converted` / `not_interested` / `spam`        |
-| `notes`                  | string         | ≤ 2,000 aksara, admin sahaja                                         |
-| `consent`                | map            | `{ privacyVersion, at }`                                             |
-| `createdAt`, `updatedAt` | Timestamp      | Masa pelayan                                                         |
-
-Tiada IP mentah. Satu-satunya index composite: `(status ASC, createdAt DESC)`.
-
-### `auditLogs/{logId}`
-
-`actorId, action, targetCollection, targetId, changedFields[], at`. Nama medan sahaja,
-tanpa nilai PII. Tindakan Fasa 1: `admin.login`, `admin.logout`, `lead.update`.
-
-### `adminSessions/{sha256(token)}`
-
-`uid, email, createdAt, expiresAt` (mutlak, +8 jam), `idleExpiresAt` (+60 minit, dilanjutkan
-setiap ≥ 5 minit aktiviti), `ipHash`. Token itu sendiri hanya wujud dalam cookie
-HttpOnly; dokumen dipadam semasa log keluar, apabila tamat, atau oleh
-`grant-admin --revoke`. TTL pada `expiresAt`.
-
-### `rateLimits/{rule}_{hash}_{window}`
-
-`count` (dinaikkan dengan `increment` atomik), `expiresAt` (hujung tetingkap). Kunci
-sentiasa hash. TTL pada `expiresAt`. Lihat ADR-007.
-
-## Cloud Storage
-
-`handover/{bookingId}/{checkout|return}/{uuid}.jpg`, ≤ 8 MB, `image/*`. Tiada akses awam;
-muat naik/turun melalui signed URL berumur pendek yang dijana Worker (Fasa 2).
-
-## Index
-
-`firebase/firestore.indexes.json`:
-
-| Jenis     | Koleksi         | Medan                        |
-| --------- | --------------- | ---------------------------- |
-| Composite | `leads`         | `status ASC, createdAt DESC` |
-| TTL       | `rateLimits`    | `expiresAt` (tanpa index)    |
-| TTL       | `adminSessions` | `expiresAt`                  |
-
-Fail disahkan dengan validator `firebase-tools`. ⚠️ Polisi TTL memadam dokumen dalam masa
-kira-kira 24 jam selepas tamat, bukan serta-merta. Kod tidak bergantung pada pemadaman
-itu: sesi dan kaunter tamat disemak dalam kod. ⚠️ Emulator **tidak** menguatkuasakan composite index — setiap
-query baharu yang menggabungkan penapis dan susunan pada medan berbeza mesti disemak dan
-index-nya ditambah sebelum deploy.
+1. Tambah fail baharu `apps/worker/migrations/000N_<nama>.sql`. **Jangan sunting migrasi
+   yang telah digunakan.**
+2. `pnpm test` (ujian menggunakan semua migrasi pada D1 tempatan).
+3. `wrangler d1 migrations apply DB --env staging`, uji, kemudian `--env production`.

@@ -1,8 +1,8 @@
 # Logik Tempahan & Inventori
 
 Peraturan bisnes seperti yang dilaksanakan dalam `packages/shared` dan
-`apps/worker/src/lib/availabilityLocks.ts`. Setiap nilai di bawah datang daripada dokumen
-`settings/*`; tiada yang di-hardcode. Item bertanda ⚠️ menunggu pengesahan pemilik.
+`apps/worker/src/lib/availabilityLocks.ts`. Setiap nilai di bawah datang daripada
+`settings`; tiada yang di-hardcode. Item bertanda ⚠️ menunggu pengesahan pemilik.
 
 **Status:** peraturan dan kunci slot siap (Fasa 0). Aliran hold → bayar → sah tiba pada
 Fasa 2.
@@ -10,7 +10,7 @@ Fasa 2.
 ## Wang dan masa
 
 - Semua wang ialah **integer sen**. `sumSen` / `multiplySen` menolak float dan integer
-  tidak selamat. Codec Firestore turut menolak nombor bukan integer.
+  tidak selamat. Lajur wang dalam D1 (Fasa 2) turut menolak bukan integer melalui `CHECK`.
 - Semua masa ialah instant UTC; hari kalendar ialah rentetan `yyyy-MM-dd` dalam **MYT**
   (UTC+8, tiada DST). Hari bertukar pada 16:00 UTC.
 
@@ -96,16 +96,16 @@ Pilihan untuk dinilai dengan data sebenar (Fasa 3), tanpa mengubah kod — semua
 
 ## Anti double-booking
 
-Lihat [DECISIONS.md, ADR-002](DECISIONS.md) untuk sebab dan bukti.
+Lihat [DECISIONS.md, ADR-002 dan ADR-017](DECISIONS.md) untuk sebab dan bukti.
 
-- Satu dokumen per unit per hari: `availabilityLocks/{unitId}_{yyyy-MM-dd}`. **Dokumen
-  wujud = hari itu dikunci.**
-- `acquireDayLocks` mencipta semua hari dalam **satu commit atomik**, setiap satu dengan
-  precondition "mesti belum wujud", bersama write pemanggil (dokumen `bookings`,
-  `bookingEvents`). Mana-mana hari sudah diambil → seluruh commit ditolak, tiada apa-apa
-  ditulis, dan hari yang bertembung dipulangkan.
-- `releaseDayLocks` memadam kunci milik pemilik yang diberi sahaja, dalam transaction,
-  bersama write pemanggil (contoh: status → `cancelled`).
+- Satu baris per unit per hari dalam jadual `availability_locks`, dengan **PRIMARY KEY
+  `(unit_id, date)`**. **Baris wujud = hari itu dikunci**; pangkalan data sendiri menolak
+  tuntutan kedua.
+- `acquireDayLocks` memasukkan semua hari dalam **satu batch D1 (satu transaksi)**, bersama
+  statement pemanggil (baris `bookings`, `booking_events`). Mana-mana hari sudah diambil →
+  seluruh batch di-rollback, tiada apa-apa ditulis, dan hari yang bertembung dipulangkan.
+- `releaseDayLocks` memadam kunci milik pemilik yang diberi sahaja, dalam batch yang sama
+  dengan statement pemanggil (contoh: status → `cancelled`).
 
 | Jenis kunci (`kind`) | Pemilik     | Bila                                            |
 | -------------------- | ----------- | ----------------------------------------------- |
@@ -116,13 +116,13 @@ Lihat [DECISIONS.md, ADR-002](DECISIONS.md) untuk sebab dan bukti.
 Blok penyelenggaraan menggunakan mekanisme yang sama, jadi ia tidak boleh menindih hari
 yang sudah ditempah, dan sebaliknya.
 
-**Jaminan yang diuji** (emulator, setiap CI):
+**Jaminan yang diuji** (D1 tempatan dalam workerd, setiap CI):
 
 - 20 permintaan serentak untuk hari bertindih × 50 pusingan → tepat 1 berjaya setiap
   pusingan; tiada kunci atau booking yatim.
 - Kunci dilepaskan → tepat 1 daripada 10 yang menunggu mendapatnya.
 - Pemilik lain tidak boleh melepaskan kunci orang.
-- Dokumen kunci yang rosak dianggap "sudah diambil".
+- Skema menolak kunci tanpa pemilik, dengan dua pemilik, atau hold tanpa masa tamat.
 
 ## State machine
 

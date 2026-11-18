@@ -1,195 +1,130 @@
 # Ujian & Kriteria Penerimaan
 
-**Status Fasa 1:** 1,112 ujian, semuanya lulus (ditambah satu semakan E2E Playwright manual, lihat bawah).
+**Status:** 760 ujian automatik lulus, ditambah satu semakan E2E Playwright manual.
 
-| Suite              | Di mana ia berjalan                 | Ujian | Arahan               |
-| ------------------ | ----------------------------------- | ----- | -------------------- |
-| Logik domain       | Node                                | 621   | `pnpm test:unit`     |
-| Unit Worker        | workerd                             | 154   | `pnpm test:unit`     |
-| Integrasi Worker   | workerd + Firestore & Auth emulator | 69    | `pnpm test:emulator` |
-| Security Rules     | Node + Firestore & Storage emulator | 255   | `pnpm test:emulator` |
-| Laman web (render) | Node                                | 10    | `pnpm test:unit`     |
-| `grant-admin`      | Node + Auth & Firestore emulator    | 3     | `pnpm test:emulator` |
+| Suite                                            | Di mana ia berjalan   | Ujian |
+| ------------------------------------------------ | --------------------- | ----- |
+| Logik domain (`packages/shared`)                 | Node                  | 621   |
+| Laman web: render build-time (`apps/web`)        | Node                  | 10    |
+| Worker: unit (`test/unit`)                       | workerd               | 75    |
+| Worker: integrasi dengan D1 (`test/integration`) | workerd + D1 tempatan | 54    |
 
 Ujian Worker berjalan dalam **workerd**, runtime yang sama dengan production, melalui
-`@cloudflare/vitest-plugin`. `pnpm test:emulator` menghidupkan dan mematikan emulator
-sendiri (perlu Java).
+`@cloudflare/vitest-plugin`, dengan pangkalan data **D1 tempatan** yang menggunakan semua
+migrasi sebelum ujian. Tiada emulator, Java atau akaun diperlukan.
 
 ## Cara menjalankan
 
 ```sh
-pnpm typecheck        # TS strict, semua pakej
-pnpm lint             # ESLint + semakan format Prettier
-pnpm test:unit        # logik domain (dengan gate coverage) + unit Worker
-pnpm test:emulator    # rules + integrasi Worker terhadap emulator
-pnpm test             # kedua-duanya
-pnpm build            # build Vite + wrangler deploy --dry-run
+pnpm typecheck   # TS strict, semua pakej
+pnpm lint        # ESLint + semakan format Prettier
+pnpm test        # semua suite di atas
+pnpm build       # build Vite (staging) + wrangler deploy --dry-run
 ```
 
-CI (`.github/workflows/ci.yml`) menjalankan kesemuanya pada setiap push, serta imbasan
-rahsia gitleaks.
+CI menjalankan kesemuanya pada setiap push, serta imbasan rahsia gitleaks ke atas seluruh
+sejarah.
 
 ## Liputan
 
-`packages/shared` mempunyai gate **90%** (baris, cabang, fungsi, pernyataan) dalam
-`vitest.config.ts`; build gagal di bawahnya. Semasa: **100%** pada keempat-empatnya.
+`packages/shared` mempunyai gate **90%** (baris, cabang, fungsi, pernyataan); ujian gagal
+di bawahnya. Semasa: **100%** pada keempat-empatnya.
 
 ## Apa yang dibuktikan
 
-### Unit — `packages/shared`
+### Logik domain
 
-| Bidang        | Liputan                                                                                       |
-| ------------- | --------------------------------------------------------------------------------------------- |
-| Wang          | Integer sahaja; float, `NaN`, integer tidak selamat ditolak; format RM                        |
-| Masa          | Hari MYT lwn UTC; disemak silang dengan `Intl` untuk 2,600 instant; tahun lompat              |
-| Tempoh        | `rentalDays` pada setiap sempadan; buffer biasa/peak; buffer tamat tepat tengah malam         |
-| Harga         | Setiap tempoh 1–7 hari; had add-on; add-on tidak aktif/pendua; yuran meetup; diskaun; deposit |
-| Pertindihan   | Sempadan inklusif (hari) dan eksklusif (selang masa)                                          |
-| State machine | **Semua 363 gabungan** status × status × actor lwn jadual bebas; terminal; kebolehcapaian     |
-| Ledger        | Baki deposit termasuk potongan dan reversal                                                   |
-| Caj lewat     | Grace, setiap sempadan blok, had 24 jam                                                       |
-| Pembatalan    | Setiap tier dan sempadan 72 j / 24 j; refund tidak pernah negatif                             |
-| Skema         | Setiap `settings/*` lalai sah; 29 kes tidak sah ditolak                                       |
+| Bidang                        | Liputan                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| Wang                          | Integer sahaja; float, `NaN`, integer tidak selamat ditolak; format RM                |
+| Masa                          | Hari MYT lwn UTC, disemak silang dengan `Intl` untuk 2,600 instant; tahun lompat      |
+| Tempoh                        | `rentalDays` pada setiap sempadan; buffer biasa/peak; buffer tamat tepat tengah malam |
+| Harga                         | Setiap tempoh 1–7 hari; had add-on; meetup; diskaun; deposit                          |
+| State machine                 | **Semua 363 gabungan** status × status × actor lwn jadual bebas                       |
+| Ledger, caj lewat, pembatalan | Setiap sempadan; refund tidak pernah negatif                                          |
+| Telefon & lead                | Normalisasi bimbit Malaysia; skema borang dan kemas kini                              |
+| Skema settings                | Setiap nilai lalai sah; 29 kes tidak sah ditolak                                      |
 
-### Unit — Worker
+### Worker — unit
 
-| Bidang          | Liputan                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Auth Google     | JWT RS256 disahkan dengan kunci awam; cache dan refresh token; kunci bukan PKCS#8 ditolak; ralat tidak membocorkan rahsia |
-| Codec nilai     | Pergi-balik semua jenis; float ditolak; transform; nama medan terpelihara                                                 |
-| Klien Firestore | Bentuk permintaan REST; pemetaan ralat; timeout; laluan tidak sah                                                         |
-| Logger          | **Snapshot bebas PII**; ralat dan punca diredaksi; stack hanya di dev                                                     |
-| Konfigurasi     | Hos emulator ditolak di staging/production; hos bukan loopback ditolak                                                    |
-| HTTP            | `/api/health`; 404/405/500 generik; header keselamatan                                                                    |
+- **Cloudflare Access:** token sah diterima. Ditolak: audience lain, issuer lain, tamat
+  tempoh, emel bukan admin, tiada emel/subject, kunci lain, tanpa tandatangan, sampah,
+  tiada token. Kunci awam diambil sekali dan dicache; diambil semula apabila kunci diputar;
+  **fail closed** jika kunci tidak dapat diambil.
+- **Konfigurasi:** log masuk dev ditolak di production; Access wajib di staging/production;
+  `ADMIN_EMAILS`, AUD dan domain pasukan disahkan; ralat tidak pernah mengandungi rahsia.
+- **Lain-lain:** HMAC, bacaan badan JSON (jenis, saiz), Origin, CSV, Turnstile
+  (strict/tidak strict/gagal), router 404/405/500, header keselamatan.
+- **Logger:** snapshot bebas PII.
 
-### Emulator — integrasi Worker
+### Worker — integrasi dengan D1
 
-- CRUD, precondition (`exists`, `updateTime`), increment, query, transaction.
-- **Commit atomik:** satu precondition gagal → tiada write diterapkan.
-- **Idempotency webhook:** ID sama 2× → satu kesan; 10 serentak → tepat 1 berjaya.
-- **Kaunter resit:** 10 transaction serentak → nombor 1–10, unik dan berjujukan.
-- **Kunci slot:** lihat di bawah.
-
-### Emulator — Security Rules
-
-Tiga jenis pemanggil (pelawat, pengguna log masuk, **admin log masuk**) × 14 koleksi ×
-baca / senarai / cipta / kemas kini / padam, serta koleksi bersarang dan Storage
-(muat turun, senarai, muat naik, padam). Semuanya mesti ditolak.
-
-Ujian ini disemak dengan mutasi: apabila rules diubah untuk membenarkan bacaan admin,
-tepat 29 ujian gagal — jadi ujian benar-benar mengesan `allow` yang tersilap.
+- **Semantik D1 yang diharapkan:** `batch()` di-rollback sepenuhnya apabila satu statement
+  gagal; konflik kunci dikenal pasti dengan betul.
+- **Skema:** setiap nilai enum dalam kod diterima oleh `CHECK`, dan nilai lain ditolak.
+  Kunci slot mesti mempunyai tepat satu pemilik. **Audit log tidak boleh diubah atau
+  dipadam** (trigger).
+- **Had kadar:** 10 serentak untuk had 3 → tepat 3 lulus; tetingkap baharu bermula semula;
+  baris tamat dibersihkan.
+- **Kunci slot:** satu baris setiap hari; statement pemanggil dalam transaksi yang sama;
+  pertindihan → tiada apa-apa ditulis; boleh diulang; maintenance lwn tempahan; pelepasan
+  hanya oleh pemilik.
+- **`POST /api/leads`:** disimpan dinormalkan tanpa IP mentah; ralat per medan dalam BM;
+  tarikh lalu atau melebihi setahun ditolak; Turnstile gagal → tiada tulisan; had per
+  telefon dan per IP; 6 serentak untuk had 3 → tepat 3; burst limiter.
+- **Admin:** semua endpoint → 401 tanpa token Access yang sah; Origin lain → 403; tapis
+  hari/status; halaman stabil termasuk **lead dengan cap masa yang sama**; kemas kini +
+  audit (nama medan sahaja); kemas kini tidak sah atau lead tiada → **tiada audit
+  direkod**; eksport CSV menapis dan meneutralkan formula.
 
 ## Ujian paling kritikal: perlumbaan kunci slot
 
-`apps/worker/test/integration/availabilityLocks.test.ts`
+`apps/worker/test/integration/availabilityLocks.test.ts`, terhadap D1.
 
 Setiap pusingan melancarkan **20 permintaan serentak** ke atas satu unit. Julat tarikh
-mereka berperingkat tetapi semuanya berkongsi sekurang-kurangnya satu hari, dan setiap
-permintaan turut mencipta dokumen `bookings` sendiri. Selepas setiap pusingan:
+mereka berbeza tetapi semuanya berkongsi sekurang-kurangnya satu hari, dan setiap
+permintaan turut menulis rekod "tempahan" dalam transaksi yang sama. Selepas setiap
+pusingan:
 
 1. tepat **satu** permintaan berjaya;
-2. hanya hari milik pemenang yang dikunci — tiada kunci yatim;
-3. hanya dokumen booking pemenang yang wujud;
-4. setiap yang kalah diberitahu hari mana yang bertembung, dan hari itu memang milik
-   pemenang.
+2. hanya hari milik pemenang yang dikunci (tiada kunci yatim);
+3. hanya rekod pemenang yang wujud;
+4. setiap yang kalah diberitahu hari mana yang bertembung, dan hari itu memang milik pemenang.
 
-**50 pusingan** setiap kali suite dijalankan (1,000 permintaan), pada setiap CI. Semasa
-pembangunan suite ini lulus 9 larian penuh berturut-turut (450 pusingan), selain
-percubaan awal 25 pusingan sebelum kod ditulis.
-
-Untuk ujian rendaman yang lebih panjang, naikkan `ROUNDS` dalam fail ujian itu.
+**50 pusingan** (1,000 permintaan) setiap kali `pnpm test` dijalankan, termasuk dalam CI.
 
 ## Kriteria penerimaan master prompt §12
 
-### Emulator + Security Rules
+| Kriteria                                              | Status                                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------------- |
+| Client tidak boleh menulis terus ke pangkalan data    | ✅ Mengikut reka bentuk: D1 tiada akses client                    |
+| Bacaan admin sahaja                                   | ✅ Access + pengesahan JWT di Worker (ADR-018)                    |
+| Dua create serentak untuk hari/unit sama → tepat satu | ✅ 20 serentak × 50 pusingan                                      |
+| `webhookEvents` idempotent                            | 📌 Fasa 2 (PK `(provider, event_key)`)                            |
+| Ledger: update/delete ditolak                         | ✅ Corak trigger dibuktikan pada `audit_logs` · 📌 jadual Fasa 2  |
+| `receiptCounters`: 10 serentak → unik berjujukan      | 📌 Fasa 2 (`UPDATE … RETURNING`)                                  |
+| Log bebas PII                                         | ✅                                                                |
+| Rate limit & Turnstile                                | ✅ (Turnstile disimulasi; siteverify sebenar disahkan di staging) |
+| Aliran tempahan penuh, webhook, overdue, lookup       | 📌 Fasa 2                                                         |
 
-| Kriteria                                                          | Status                                                         |
-| ----------------------------------------------------------------- | -------------------------------------------------------------- |
-| Rules tolak semua tulisan client ke setiap koleksi                | ✅                                                             |
-| Rules benarkan bacaan admin sahaja                                | ↪️ Diganti: admin pun ditolak; bacaan melalui Worker (ADR-003) |
-| Dua create serentak untuk hari/unit sama → tepat satu berjaya     | ✅ (20 serentak × 50 pusingan)                                 |
-| `webhookEvents` `eventKey` sama 2× → idempotent                   | ✅                                                             |
-| `ledgerEntries`: update/delete ditolak; Worker tidak memanggilnya | ✅ rules · 📌 kod Fasa 2                                       |
-| `receiptCounters`: 10 serentak → 10 nombor unik berjujukan        | ✅                                                             |
+## E2E (Playwright, manual — tidak dalam CI)
 
-### Integrasi Worker
+`wrangler dev` + D1 tempatan, pada saiz iPhone 13 dan Pixel 7. **23/23 semakan lulus:**
 
-| Kriteria                                                           | Status                                                            |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| Log bebas PII (snapshot logger)                                    | ✅                                                                |
-| Hold tamat → slot boleh ditempah semula                            | ✅ primitif kunci · 📌 aliran Fasa 2                              |
-| Blok maintenance menghalang tempahan pada hari sama                | ✅ primitif kunci · 📌 endpoint Fasa 2                            |
-| 20 `hold` serentak → tepat 1 berjaya, 19 dapat `409`               | ✅ primitif kunci · 📌 endpoint Fasa 2                            |
-| Aliran hold → webhook → `confirmed`; ledger; outbox                | 📌 Fasa 2                                                         |
-| Tandatangan webhook tidak sah / amaun tidak padan                  | 📌 Fasa 2                                                         |
-| Bayar selepas hold tamat (bebas → sah; diambil → `refund_pending`) | 📌 Fasa 2                                                         |
-| `overdue` selepas grace                                            | ✅ logik · 📌 cron Fasa 2                                         |
-| Lookup token salah → 404 generik                                   | 📌 Fasa 2                                                         |
-| Rate limit & Turnstile                                             | ✅ (Turnstile disimulasi; siteverify sebenar disahkan di staging) |
-| Peralihan tidak sah ditolak oleh endpoint                          | ✅ logik · 📌 endpoint Fasa 2                                     |
+- **Laman awam:** tiada skrol mendatar; kalkulator (3 hari + CPL = RM275); ralat medan dan
+  mesej berjaya pada borang (API dan Turnstile disimulasi); semua halaman polisi; 404;
+  tiada ralat konsol.
+- **Admin:** tiada borang log masuk (Access); emel admin dipaparkan; log keluar melalui
+  `/cdn-cgi/access/logout`; senarai terbaharu dahulu; pautan WhatsApp pra-isi; tukar
+  status; nota; tapis; eksport CSV.
 
-### Manual / E2E dan launch checklist
-
-Belum terpakai pada Fasa 0. Lihat master prompt §12.
-
-## Fasa 1: apa yang dibuktikan
-
-**Integrasi (emulator Firestore + Auth, dalam workerd):**
-
-- `POST /api/leads`: lead disimpan dinormalkan tanpa IP mentah; ralat per medan dalam BM
-  tanpa memantulkan input; tarikh lalu / > 1 tahun ditolak; Turnstile gagal → tiada tulisan;
-  had 3/hari per telefon dan 10/jam per IP; **6 penyerahan serentak untuk had 3 → tepat 3
-  lulus**; burst limiter.
-- Admin: log masuk betul → cookie HttpOnly/Strict, hanya hash token disimpan, log masuk
-  diaudit; kata laluan salah / akaun tiada / bukan admin / badan rosak → jawapan sama;
-  Origin lain → 403; had 5 cubaan per emel (kata laluan betul pun ditolak dalam tetingkap);
-  log keluar membatalkan cookie; cookie palsu ditolak; sesi tamat mutlak (8 j) dan tidak
-  aktif (60 min); aktiviti melanjutkan sesi.
-- Leads: tapis hari/status, susunan terbaharu dahulu, halaman berturutan tanpa ulangan;
-  penapis tidak sah → 400; kemas kini status/nota + audit (nama medan sahaja); kemas kini
-  tidak sah / ID tiada / Origin lain ditolak tanpa mengubah data; eksport CSV menapis dan
-  meneutralkan formula.
-- `grant-admin`: claim muncul dalam ID token seterusnya; `--revoke` memadam claim dan sesi
-  akaun itu sahaja; emel tiada → ralat jelas.
-
-**Unit:** penormalan telefon Malaysia; skema lead; HMAC; bacaan badan JSON (jenis, saiz);
-cookie; Origin; CSV; Turnstile (strict / tidak strict / gagal); pengesahan ID token dengan
-kunci RSA tempatan (tandatangan salah, tanpa tandatangan, audience/issuer/expiry, tiada
-claim admin); pemetaan ralat Identity Toolkit; escaping templat HTML; dokumen staging lwn
-production (noindex, canonical, banner draf).
-
-**Rules:** 255 ujian, kini termasuk `adminSessions` dan `rateLimits`.
-
-**E2E (Playwright, manual, bukan dalam CI):** `wrangler dev` + emulator, iPhone 13 dan
-Pixel 7 — 23 semakan lulus: tiada skrol mendatar, kalkulator (3 hari + CPL = RM275),
-ralat medan dan mesej berjaya borang (API & Turnstile disimulasi), semua halaman polisi,
-404, tiada ralat konsol; admin: kata laluan salah ditolak, cookie HttpOnly/Strict, senarai
-terbaharu dahulu, pautan WhatsApp pra-isi, tukar status, nota, tapis, eksport CSV, log
-keluar.
-
-**Lighthouse mobile (build tempatan):** landing — Performance 100, Accessibility 100, Best
-Practices 100, SEO 63 (hanya `is-crawlable`: staging sengaja `noindex`). Admin — 100 / 100 /
-96 (ralat konsol: `401` yang dijangka sebelum log masuk).
-
-## Ujian manual Fasa 0
-
-```sh
-pnpm install
-pnpm test                       # semua ujian
-
-pnpm dev:emulators              # terminal 1
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
-pnpm dev                        # terminal 2
-
-curl -i http://localhost:8787/api/health     # 200, JSON, header keselamatan
-curl -i http://localhost:8787/               # halaman placeholder + CSP
-curl -i http://localhost:8787/tiada          # 404 dengan halaman 404
-curl -i -X POST http://localhost:8787/api/health   # 405, Allow: GET
-```
+**Lighthouse mobile (build tempatan, sebelum penukaran stack; laman awam tidak berubah):**
+Performance 100, Accessibility 100, Best Practices 100. SEO 63 kerana staging sengaja
+`noindex`.
 
 ## Had yang diketahui
 
-- Emulator tidak menguatkuasakan composite index Firestore.
-- Emulator menunggu 2 saat apabila commit bertembung pada dokumen yang sama; production
-  berkelakuan berbeza dari segi masa, bukan ketepatan.
-- Pertukaran token OAuth sebenar dengan Google tidak diuji tanpa service account sebenar.
+- Cloudflare Access sebenar dan Turnstile sebenar tidak dapat diuji tanpa akaun; kedua-duanya
+  disenaraikan dalam semakan selepas deploy (`DEPLOYMENT_AND_BACKUP.md`).
+- D1 tempatan berjalan dalam satu proses; kekangan PRIMARY KEY yang menjamin ketepatan
+  adalah sama di production.
