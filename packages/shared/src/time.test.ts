@@ -13,6 +13,7 @@ import {
   formatMytDate,
   formatMytDateTime,
   isDateString,
+  mytTimeOfDay,
   isTimeOfDay,
   mytDateString,
   mytDateTime,
@@ -165,5 +166,18 @@ describe("formatting", () => {
   it("formats calendar days", () => {
     expect(formatMytDate("2026-12-24", "en-GB")).toBe("24 Dec 2026");
     expect(formatMytDate("2026-12-24")).toContain("2026");
+  });
+});
+
+describe("mytTimeOfDay", () => {
+  it("gives the MYT wall-clock time, across the UTC date line", () => {
+    expect(mytTimeOfDay(new Date("2026-12-01T00:00:00.000Z"))).toBe("08:00");
+    expect(mytTimeOfDay(new Date("2026-12-01T16:30:59.999Z"))).toBe("00:30");
+    expect(mytTimeOfDay(new Date("1969-12-31T23:59:00.000Z"))).toBe("07:59");
+    expect(mytTimeOfDay(mytDateTime("2026-12-01", "18:05"))).toBe("18:05");
+  });
+
+  it("rejects an invalid instant", () => {
+    expect(() => mytTimeOfDay(new Date(Number.NaN))).toThrow();
   });
 });

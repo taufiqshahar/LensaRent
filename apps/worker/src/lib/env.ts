@@ -24,6 +24,12 @@ export interface Env {
   CHIP_BRAND_ID?: string;
   /** Optional pinned CHIP public key (PEM) for callback signatures; else fetched from CHIP. */
   CHIP_PUBLIC_KEY?: string;
+  /** Public origin of the site, e.g. `https://lensarent.my`. Used in emails (no request there). */
+  SITE_ORIGIN?: string;
+  /** Secret: Resend API key. Without it (and EMAIL_FROM) queued emails wait unsent. */
+  RESEND_API_KEY?: string;
+  /** Sender, e.g. `LensaRent <tempahan@lensarent.my>`, on a domain verified in Resend. */
+  EMAIL_FROM?: string;
   DB?: D1Database;
   ASSETS?: Fetcher;
   /** Workers Rate Limiting binding: a cheap first line against bursts from one IP. */
@@ -40,6 +46,11 @@ export interface ChipConfig {
   publicKeyPem: string | undefined;
 }
 
+export interface EmailConfig {
+  resendApiKey: string;
+  from: string;
+}
+
 export interface AppConfig {
   environment: Environment;
   /** Staging and production: strict checks apply (Turnstile hostname/action, no dev login). */
@@ -49,6 +60,10 @@ export interface AppConfig {
   adminAuth: AdminAuthConfig;
   /** Absent: online booking is closed (the site still works; leads still work). */
   chip: ChipConfig | undefined;
+  /** Absent: emails stay queued in the outbox until it is configured. */
+  email: EmailConfig | undefined;
+  /** For links in emails. Absent: emails carry the reference code but no link. */
+  siteOrigin: string | undefined;
   /** Where operational alerts (payment mismatch, overdue) are emailed. */
   alertEmails: readonly string[];
 }
@@ -97,6 +112,17 @@ const configSchema = z
       (value) => value === undefined || z.email().safeParse(value).success,
       "must be an email",
     ),
+    SITE_ORIGIN: optionalText.refine(
+      (value) => value === undefined || /^https?:\/\/[a-z0-9.-]+(:\d+)?$/.test(value),
+      "must be an origin like https://example.com (no path, no trailing slash)",
+    ),
+    RESEND_API_KEY: optionalText,
+    EMAIL_FROM: optionalText.refine(
+      (value) =>
+        value === undefined ||
+        /^[^<>\r\n]{0,80}<[^\s<>@]+@[^\s<>@]+>$|^[^\s<>@]+@[^\s<>@]+$/.test(value),
+      "must be an email, or a name followed by <email>",
+    ),
     CHIP_SECRET_KEY: optionalText,
     CHIP_BRAND_ID: optionalText.refine(
       (value) => value === undefined || /^[A-Za-z0-9-]{1,100}$/.test(value),
@@ -120,6 +146,9 @@ const configSchema = z
       if (value.ACCESS_AUD === undefined) issue("ACCESS_AUD", "is required");
       if (value.ADMIN_EMAILS === undefined) issue("ADMIN_EMAILS", "is required");
     }
+    if ((value.RESEND_API_KEY === undefined) !== (value.EMAIL_FROM === undefined)) {
+      issue("EMAIL_FROM", "RESEND_API_KEY and EMAIL_FROM must be set together");
+    }
     if ((value.CHIP_SECRET_KEY === undefined) !== (value.CHIP_BRAND_ID === undefined)) {
       issue("CHIP_BRAND_ID", "CHIP_SECRET_KEY and CHIP_BRAND_ID must be set together");
     }
@@ -138,6 +167,9 @@ export function loadConfig(env: Env): AppConfig {
     ACCESS_AUD: env.ACCESS_AUD,
     ADMIN_EMAILS: env.ADMIN_EMAILS,
     ACCESS_DEV_EMAIL: env.ACCESS_DEV_EMAIL,
+    SITE_ORIGIN: env.SITE_ORIGIN,
+    RESEND_API_KEY: env.RESEND_API_KEY,
+    EMAIL_FROM: env.EMAIL_FROM,
     CHIP_SECRET_KEY: env.CHIP_SECRET_KEY,
     CHIP_BRAND_ID: env.CHIP_BRAND_ID,
     CHIP_PUBLIC_KEY: env.CHIP_PUBLIC_KEY,
@@ -180,6 +212,11 @@ export function loadConfig(env: Env): AppConfig {
             publicKeyPem: data.CHIP_PUBLIC_KEY,
           }
         : undefined,
+    email:
+      data.RESEND_API_KEY !== undefined && data.EMAIL_FROM !== undefined
+        ? { resendApiKey: data.RESEND_API_KEY, from: data.EMAIL_FROM }
+        : undefined,
+    siteOrigin: data.SITE_ORIGIN,
     alertEmails: adminAuth.mode === "dev" ? [adminAuth.email] : [...adminAuth.adminEmails],
   };
 }

@@ -7,8 +7,12 @@ import { newId } from "./db";
  */
 export const EMAIL_TEMPLATES = [
   "booking_confirmed",
+  "pickup_reminder",
   "admin_new_booking",
   "admin_payment_problem",
+  "admin_overdue",
+  "admin_hold_unresolved",
+  "admin_daily_summary",
 ] as const;
 export type EmailTemplate = (typeof EMAIL_TEMPLATES)[number];
 

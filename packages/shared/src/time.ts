@@ -111,6 +111,20 @@ export function addMinutes(instant: Date, minutes: number): Date {
   return new Date(instant.getTime() + minutes * MS_PER_MINUTE);
 }
 
+/** Wall-clock time in MYT, `HH:mm`, for an instant. */
+export function mytTimeOfDay(instant: Date): TimeOfDay {
+  assertInstant(instant);
+  const minutes = Math.floor(
+    ((((instant.getTime() + MYT_OFFSET_MS) % MS_PER_DAY) + MS_PER_DAY) % MS_PER_DAY) /
+      MS_PER_MINUTE,
+  );
+  const hh = Math.floor(minutes / 60)
+    .toString()
+    .padStart(2, "0");
+  const mm = (minutes % 60).toString().padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 /** Day of week for an MYT calendar day: 0 = Sunday … 6 = Saturday. */
 export function dayOfWeek(date: DateString): number {
   return new Date(utcMidnightMs(date)).getUTCDay();

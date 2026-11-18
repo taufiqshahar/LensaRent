@@ -19,6 +19,7 @@ import {
 } from "./routes/bookings";
 import { createLeadHandler } from "./routes/leads";
 import { chipWebhookHandler } from "./routes/webhooks";
+import { runScheduled } from "./scheduled";
 import type { ServicesFactory } from "./services";
 import { createServices } from "./services";
 
@@ -58,6 +59,18 @@ export function createApp(makeServices: ServicesFactory = createServices) {
         // The caller gets a generic message; the detail goes to the (redacted) log only.
         logger.error("request.failed", { method: request.method, path: url.pathname, error });
         return errorResponse("INTERNAL_ERROR");
+      }
+    },
+
+    /** The single cron trigger (every minute): holds, overdue, emails, cleanup. */
+    async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+      const logger = createLogger({ environment: env.ENVIRONMENT ?? "unknown" });
+      try {
+        const config = loadConfig(env);
+        await runScheduled(config, makeServices(config, env), logger);
+      } catch (error) {
+        logger.error("cron.failed", { error });
+        throw error;
       }
     },
   } satisfies ExportedHandler<Env>;

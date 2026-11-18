@@ -272,7 +272,7 @@ export const holdHandler: Handler = async (context) => {
   const plan = planBooking(hold, settings, customer.tier, now);
   if (!plan.ok) return planErrorResponse(plan.field, plan.problem);
 
-  const created = await createHold(services.db, {
+  const created = await createHold(services.db, services.hasher, {
     request: hold,
     plan: plan.value,
     customer,

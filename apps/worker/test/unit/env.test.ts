@@ -24,8 +24,33 @@ describe("loadConfig", () => {
       phoneHashPepper: "test-pepper-test-pepper-test-pepper",
       adminAuth: { mode: "dev", email: "admin@lensarent.test" },
       chip: undefined,
+      email: undefined,
+      siteOrigin: undefined,
       alertEmails: ["admin@lensarent.test"],
     });
+  });
+
+  it("enables email only with both the Resend key and a sender", () => {
+    expect(
+      loadConfig({
+        ...production,
+        RESEND_API_KEY: "SECRET-RESEND",
+        EMAIL_FROM: "LensaRent <tempahan@example.com>",
+        SITE_ORIGIN: "https://example.com",
+      }),
+    ).toMatchObject({
+      email: { resendApiKey: "SECRET-RESEND", from: "LensaRent <tempahan@example.com>" },
+      siteOrigin: "https://example.com",
+    });
+    expect(() => loadConfig({ ...production, RESEND_API_KEY: "SECRET-RESEND" })).toThrow(
+      /must be set together/,
+    );
+    expect(() => loadConfig({ ...production, SITE_ORIGIN: "https://example.com/" })).toThrow(
+      /SITE_ORIGIN/,
+    );
+    expect(() =>
+      loadConfig({ ...production, RESEND_API_KEY: "k", EMAIL_FROM: "Evil\r\nBcc: x@y.z" }),
+    ).toThrow(/EMAIL_FROM/);
   });
 
   it("enables CHIP only with both the key and the brand id", () => {

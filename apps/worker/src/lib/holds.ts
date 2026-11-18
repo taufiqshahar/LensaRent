@@ -4,7 +4,8 @@ import { acquireDayLocks, releaseBookingLocksStatement } from "./availabilityLoc
 import type { Actor, BookingRow } from "./bookings";
 import { prepareTransition, runTransition } from "./bookings";
 import type { CheckoutLine, PaymentProvider } from "./chip";
-import { randomToken, sha256 } from "./crypto";
+import type { Hasher } from "./crypto";
+import { sha256 } from "./crypto";
 import { isUniqueViolation, newId } from "./db";
 import type { Logger } from "./logger";
 
@@ -98,7 +99,11 @@ export interface CreatedHold {
 }
 
 /** Locks the days on the first free active unit. Null when every unit is taken. */
-export async function createHold(db: D1Database, input: HoldInput): Promise<CreatedHold | null> {
+export async function createHold(
+  db: D1Database,
+  hasher: Hasher,
+  input: HoldInput,
+): Promise<CreatedHold | null> {
   const { request, plan, customer, settings, now } = input;
   const { results: units } = await db
     .prepare("SELECT id FROM units WHERE status = 'active' ORDER BY sort_order, id")
@@ -111,7 +116,7 @@ export async function createHold(db: D1Database, input: HoldInput): Promise<Crea
     for (let attempt = 1; ; attempt++) {
       const bookingId = newId();
       const refCode = newRefCode();
-      const lookupToken = randomToken(24);
+      const lookupToken = await hasher.hash("lookup", bookingId);
       const transitionId = newId();
       const insertBooking = db
         .prepare(

@@ -153,3 +153,25 @@ describe("createRouter", () => {
     ).rejects.toThrow("boom");
   });
 });
+
+describe("scheduled", () => {
+  const controller: ScheduledController = {
+    cron: "* * * * *",
+    scheduledTime: Date.now(),
+    noRetry: () => undefined,
+  };
+
+  it("runs the cron jobs with the real bindings", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));
+    await worker.scheduled(controller, env);
+    expect(lines.some((line) => line.includes('"event":"cron.run"'))).toBe(true);
+  });
+
+  it("fails loudly on a broken configuration", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(
+      worker.scheduled(controller, { ...env, PHONE_HASH_PEPPER: "short" }),
+    ).rejects.toThrow();
+  });
+});

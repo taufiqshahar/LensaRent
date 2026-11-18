@@ -20,6 +20,8 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     phoneHashPepper: "test-pepper-test-pepper-test-pepper",
     adminAuth: { mode: "dev", email: TEST_ADMIN },
     chip: undefined,
+    email: undefined,
+    siteOrigin: undefined,
     alertEmails: [TEST_ADMIN],
     ...overrides,
   };

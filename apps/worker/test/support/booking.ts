@@ -1,5 +1,6 @@
 import type { AllSettings } from "@lensarent/shared";
 import { DEFAULT_SETTINGS, addDays, mytDateTime } from "@lensarent/shared";
+import type { PaymentProvider } from "../../src/lib/chip";
 import { createChipProvider } from "../../src/lib/chip";
 import type { Services } from "../../src/services";
 import { randomPhone, testApp } from "../integration/app";
@@ -38,38 +39,52 @@ export const TEST_SETTINGS: AllSettings = {
  * A random "today" centuries ahead, so each test has a calendar of its own: tests share
  * one database and one fleet, and must not compete for the same days.
  */
-export function randomToday(): string {
-  const year = 2100 + Math.floor(Math.random() * 800);
+export function randomToday(fromYear = 2100, years = 800): string {
+  const year = fromYear + Math.floor(Math.random() * years);
   const day = Math.floor(Math.random() * 360);
   return addDays(`${year.toString()}-01-01`, day);
 }
 
 export interface BookingWorld {
   today: string;
-  now: Date;
+  /** Starts at 08:00 MYT on `today`; tests may move it (`world.clock.now = …`). */
+  clock: { now: Date };
+  readonly now: Date;
   app: ReturnType<typeof testApp>;
+  provider: PaymentProvider | undefined;
+}
+
+export function chipProvider(chip: FakeChip): PaymentProvider {
+  return createChipProvider({
+    secretKey: "test-chip-key",
+    brandId: "test-brand",
+    publicKeyPem: chip.publicKeyPem,
+    fetch: chip.fetch,
+  });
 }
 
 export function bookingWorld(
   chip: FakeChip | null,
   overrides: Partial<Services> = {},
+  today = randomToday(),
 ): BookingWorld {
-  const today = randomToday();
-  const now = mytDateTime(today, "08:00");
+  const clock = { now: mytDateTime(today, "08:00") };
+  const provider = chip ? chipProvider(chip) : undefined;
   const app = testApp({
-    payments: chip
-      ? createChipProvider({
-          secretKey: "test-chip-key",
-          brandId: "test-brand",
-          publicKeyPem: chip.publicKeyPem,
-          fetch: chip.fetch,
-        })
-      : undefined,
+    payments: provider,
     settings: () => Promise.resolve(TEST_SETTINGS),
-    now: () => now,
+    now: () => clock.now,
     ...overrides,
   });
-  return { today, now, app };
+  return {
+    today,
+    clock,
+    get now() {
+      return clock.now;
+    },
+    app,
+    provider,
+  };
 }
 
 export function period(today: string, startOffset = 2, days = 2) {

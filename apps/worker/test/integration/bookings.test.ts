@@ -9,6 +9,7 @@ import {
   runTransition,
 } from "../../src/lib/bookings";
 import { createChipProvider } from "../../src/lib/chip";
+import { createHasher } from "../../src/lib/crypto";
 import { createLogger } from "../../src/lib/logger";
 import { TEST_ENV, testDb } from "../helpers";
 import type { FakeChip } from "../support/fakeChip";
@@ -343,7 +344,7 @@ describe("POST /api/bookings/hold", () => {
       email: request.email,
       now: world.now,
     });
-    const created = await createHold(db, {
+    const created = await createHold(db, createHasher("test-pepper-test-pepper-test-pepper"), {
       request,
       plan: plan.value,
       customer,

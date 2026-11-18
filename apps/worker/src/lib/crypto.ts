@@ -25,7 +25,11 @@ export async function sha256(value: string): Promise<string> {
  * number hashed for two purposes gives two unrelated values.
  */
 export interface Hasher {
-  hash(purpose: "phone" | "ip", value: string): Promise<string>;
+  /**
+   * `lookup` derives a booking's status-page token from its id, so the token can be put
+   * in emails later without ever being stored (only its SHA-256 is).
+   */
+  hash(purpose: "phone" | "ip" | "lookup", value: string): Promise<string>;
 }
 
 export function createHasher(pepper: string): Hasher {
