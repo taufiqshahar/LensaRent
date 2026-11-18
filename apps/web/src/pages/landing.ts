@@ -53,7 +53,8 @@ function hero(): SafeHtml {
         dengan deposit ${deposit} yang dipulangkan.
       </p>
       <div class="hero__actions">
-        <a class="button" href="#semak">Semak tarikh</a>
+        <a class="button" href="/tempah">Tempah sekarang</a>
+        <a class="button button--ghost" href="#semak">Tanya dahulu</a>
         <a class="button button--ghost" href="${whatsappGeneral}" rel="noopener">WhatsApp kami</a>
       </div>
     </div>

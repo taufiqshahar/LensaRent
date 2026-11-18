@@ -1,4 +1,5 @@
 export * from "./booking";
+export * from "./bookingLabels";
 export * from "./cancellation";
 export * from "./defaultSettings";
 export * from "./duration";

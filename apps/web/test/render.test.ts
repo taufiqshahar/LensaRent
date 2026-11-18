@@ -61,6 +61,37 @@ describe("pages", () => {
     }
   });
 
+  it("render the booking form with every API field, consent links and the site key", () => {
+    const doc = renderDocument(byEntry("tempah"), staging, () => false);
+    for (const id of [
+      "pickupDate",
+      "pickupSlotId",
+      "pickupLocationId",
+      "returnDate",
+      "returnSlotId",
+      "returnLocationId",
+      "name",
+      "phone",
+      "email",
+      "consent",
+    ]) {
+      expect(doc, id).toContain(`id="${id}"`);
+      expect(doc, id).toContain(`id="${id}-error"`);
+    }
+    expect(doc).toContain('href="/terma"');
+    expect(doc).toContain('href="/privasi"');
+    expect(doc).toContain('data-sitekey="1x00000000000000000000AA"');
+    expect(doc).toContain('<script type="module" src="/src/booking.ts"></script>');
+  });
+
+  it("keep the status page out of search engines and the sitemap", () => {
+    const page = byEntry("tempahan");
+    expect(page.hidden).toBe(true);
+    expect(renderDocument(page, production, () => false)).toContain(
+      '<meta name="robots" content="noindex" />',
+    );
+  });
+
   it("keep staging out of search engines and mark it as a draft", () => {
     const doc = renderDocument(byEntry("index"), staging, () => true);
     expect(doc).toContain('<meta name="robots" content="noindex" />');

@@ -4,6 +4,7 @@ import { quote } from "@lensarent/shared/pricing";
 import { mytDateString } from "@lensarent/shared/time";
 import type { ApiError } from "./dom";
 import { NETWORK_ERROR, apiError, byId } from "./dom";
+import { loadTurnstile } from "./turnstile";
 
 /**
  * Landing page behaviour: the price calculator and the interest form. The page is fully
@@ -54,40 +55,6 @@ function setupCalculator(): void {
     event.preventDefault();
   });
   update();
-}
-
-// ── Turnstile ────────────────────────────────────────────────────────────────────────────
-// Loaded only when the visitor starts filling in the form, to keep the first load fast.
-
-interface TurnstileApi {
-  render(container: HTMLElement, options: Record<string, unknown>): string;
-  reset(widgetId?: string): void;
-}
-declare global {
-  interface Window {
-    turnstile?: TurnstileApi;
-  }
-}
-
-const TURNSTILE_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-let turnstileLoading: Promise<TurnstileApi> | undefined;
-
-function loadTurnstile(): Promise<TurnstileApi> {
-  turnstileLoading ??= new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = TURNSTILE_SRC;
-    script.async = true;
-    script.onload = () => {
-      if (window.turnstile) resolve(window.turnstile);
-      else reject(new Error("Turnstile did not load"));
-    };
-    script.onerror = () => {
-      turnstileLoading = undefined;
-      reject(new Error("Turnstile did not load"));
-    };
-    document.head.append(script);
-  });
-  return turnstileLoading;
 }
 
 // ── Interest form ────────────────────────────────────────────────────────────────────────

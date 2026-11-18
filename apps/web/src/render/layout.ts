@@ -60,7 +60,8 @@ function header(): SafeHtml {
           <li><a href="/#harga">Harga</a></li>
           <li><a href="/#cara-tempah">Cara tempah</a></li>
           <li><a href="/soalan-lazim">Soalan lazim</a></li>
-          <li><a class="button button--small" href="/#semak">Semak tarikh</a></li>
+          <li><a href="/#semak">Semak tarikh</a></li>
+          <li><a class="button button--small" href="/tempah">Tempah</a></li>
         </ul>
       </nav>
     </div>

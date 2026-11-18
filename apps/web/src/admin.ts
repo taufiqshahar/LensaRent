@@ -7,8 +7,10 @@ import {
 import type { LeadSource, LeadStatus, LeadUsage } from "@lensarent/shared/leadOptions";
 import { formatMyMobile, whatsappUrl } from "@lensarent/shared/phone";
 import { formatMytDate, formatMytDateTime } from "@lensarent/shared/time";
-import type { ApiError } from "./dom";
-import { NETWORK_ERROR, apiError, byId, el } from "./dom";
+import { api, setExpiredHandler } from "./adminApi";
+import { showOps } from "./adminOps";
+import type { OpsView } from "./adminOps";
+import { byId, el } from "./dom";
 
 /**
  * Admin panel (Fasa 1): sign in, list leads, change status, keep notes, export CSV.
@@ -33,26 +35,6 @@ interface Session {
 
 const root = byId("admin-app", HTMLElement);
 const brand = root?.dataset.brand ?? "LensaRent";
-
-type Result<T> = { ok: true; value: T } | { ok: false; error: ApiError; status: number };
-
-async function api<T>(path: string, init: RequestInit = {}): Promise<Result<T>> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      ...init,
-      credentials: "same-origin",
-      headers: init.body ? { "content-type": "application/json" } : {},
-    });
-  } catch {
-    return { ok: false, error: NETWORK_ERROR, status: 0 };
-  }
-  if (!response.ok) {
-    return { ok: false, error: await apiError(response), status: response.status };
-  }
-  const value = (response.status === 204 ? null : await response.json()) as T;
-  return { ok: true, value };
-}
 
 function render(...nodes: Node[]): void {
   root?.replaceChildren(...nodes);
@@ -193,7 +175,7 @@ function leadCard(lead: Lead, onExpired: () => void): HTMLElement {
   );
 }
 
-function showLeads(session: Session): void {
+function showLeads(container: HTMLElement): void {
   const list = el("ul", { class: "lead-list" });
   const more = el(
     "button",
@@ -280,28 +262,71 @@ function showLeads(session: Session): void {
     load(true);
   });
 
+  container.replaceChildren(filterForm, summary, list, more);
+  load(false);
+}
+
+// ── Shell ───────────────────────────────────────────────────────────────────────────────
+
+const VIEWS: readonly { id: OpsView | "leads"; label: string }[] = [
+  { id: "today", label: "Hari ini" },
+  { id: "bookings", label: "Tempahan" },
+  { id: "calendar", label: "Kalendar" },
+  { id: "leads", label: "Leads" },
+  { id: "fleet", label: "Unit & blok" },
+  { id: "customers", label: "Pelanggan" },
+  { id: "settings", label: "Tetapan" },
+  { id: "audit", label: "Audit" },
+];
+
+function showShell(session: Session): void {
+  const main = el("div", { class: "admin__main" });
+  const nav = el("nav", { class: "admin__nav", "aria-label": "Admin" });
+  const open = (id: OpsView | "leads") => {
+    for (const button of nav.querySelectorAll("button")) {
+      if (button.dataset.view === id) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    }
+    if (id === "leads") showLeads(main);
+    else showOps(id, main);
+  };
+  for (const view of VIEWS) {
+    const button = el(
+      "button",
+      { class: "button button--small button--ghost", type: "button", "data-view": view.id },
+      view.label,
+    );
+    button.addEventListener("click", () => {
+      open(view.id);
+    });
+    nav.append(button);
+  }
   // Ends the Cloudflare Access session; the next visit asks for a new one-time PIN.
   const logout = el(
     "a",
     { class: "button button--small button--ghost", href: ACCESS_LOGOUT },
     "Log keluar",
   );
-
   render(
     el(
       "header",
       { class: "admin__bar" },
-      el("strong", {}, `${brand} · Leads`),
+      el("strong", {}, `${brand} · Admin`),
       el("span", { class: "muted small" }, session.email),
       logout,
     ),
-    el("div", { class: "admin__main" }, filterForm, summary, list, more),
+    nav,
+    main,
   );
-  load(false);
+  open("today");
 }
 
+setExpiredHandler(() => {
+  showSignedOut("Sesi anda telah tamat. Sila log masuk semula.");
+});
+
 void api<Session>("/api/admin/me").then((result) => {
-  if (result.ok) showLeads(result.value);
+  if (result.ok) showShell(result.value);
   else if (result.status === 401) {
     showSignedOut("Akses ditolak. Log masuk dengan emel admin yang didaftarkan.");
   } else showSignedOut(result.error.message);
