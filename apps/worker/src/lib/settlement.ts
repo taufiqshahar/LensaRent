@@ -126,7 +126,14 @@ export async function settlePayment(
       const prepared = prepareTransition(
         db,
         booking,
-        { to: "refund_pending", actor: PAYMENT_ACTOR, reason: `payment_${problem}`, now },
+        {
+          to: "refund_pending",
+          actor: PAYMENT_ACTOR,
+          reason: `payment_${problem}`,
+          // Everything received goes back; none of it was ever booked as income.
+          set: { refund_due_sen: paidSen },
+          now,
+        },
         (guard) => [
           releaseBookingLocksStatement(db, booking.id, guard),
           db

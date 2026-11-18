@@ -48,6 +48,21 @@ export const API_ERRORS = {
     status: 503,
     message: "Tempahan dalam talian belum dibuka. Sila hubungi kami melalui WhatsApp.",
   },
+  BOOKING_CHANGED: {
+    status: 409,
+    message: "Tempahan ini telah berubah sejak dibuka. Sila muat semula dan cuba lagi.",
+  },
+  INVALID_TRANSITION: { status: 409, message: "Perubahan status ini tidak dibenarkan." },
+  PHOTO_REQUIRED: {
+    status: 409,
+    message: "Sila muat naik sekurang-kurangnya satu gambar keadaan kamera dahulu.",
+  },
+  UNIT_HAS_BOOKINGS: {
+    status: 409,
+    message:
+      "Unit ini masih ada tempahan akan datang. Pindahkan atau batalkan tempahan itu dahulu.",
+  },
+  PHOTOS_UNAVAILABLE: { status: 503, message: "Storan gambar belum disediakan." },
   PAYMENT_UNAVAILABLE: {
     status: 502,
     message:

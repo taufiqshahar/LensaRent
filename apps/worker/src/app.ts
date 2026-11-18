@@ -5,6 +5,32 @@ import { createLogger } from "./lib/logger";
 import type { Route } from "./router";
 import { createRouter, healthHandler } from "./router";
 import {
+  bookingDetailHandler,
+  cancelHandler,
+  handoverHandler,
+  ledgerEntryHandler,
+  listBookingsHandler,
+  refundHandler,
+  rescheduleHandler,
+  returnHandler,
+  settleHandler,
+  transitionHandler,
+} from "./routes/adminBookings";
+import {
+  auditLogHandler,
+  calendarHandler,
+  createBlockHandler,
+  createUnitHandler,
+  deleteBlockHandler,
+  getSettingsHandler,
+  listBlocksHandler,
+  listCustomersHandler,
+  listUnitsHandler,
+  updateCustomerHandler,
+  updateSettingHandler,
+  updateUnitHandler,
+} from "./routes/adminFleet";
+import {
   currentAdminHandler,
   exportLeadsHandler,
   listLeadsHandler,
@@ -17,6 +43,7 @@ import {
   lookupHandler,
   quoteHandler,
 } from "./routes/bookings";
+import { downloadPhotoHandler, uploadPhotoHandler } from "./routes/adminPhotos";
 import { createLeadHandler } from "./routes/leads";
 import { chipWebhookHandler } from "./routes/webhooks";
 import { runScheduled } from "./scheduled";
@@ -36,6 +63,30 @@ export const routes: readonly Route[] = [
   { method: "GET", path: "/api/admin/leads", handler: listLeadsHandler },
   { method: "GET", path: "/api/admin/leads/export", handler: exportLeadsHandler },
   { method: "PUT", path: "/api/admin/leads/:id", handler: updateLeadHandler },
+  { method: "GET", path: "/api/admin/bookings", handler: listBookingsHandler },
+  { method: "GET", path: "/api/admin/bookings/:id", handler: bookingDetailHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/transition", handler: transitionHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/cancel", handler: cancelHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/refund", handler: refundHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/handover", handler: handoverHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/return", handler: returnHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/settle", handler: settleHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/ledger", handler: ledgerEntryHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/reschedule", handler: rescheduleHandler },
+  { method: "POST", path: "/api/admin/bookings/:id/photos", handler: uploadPhotoHandler },
+  { method: "GET", path: "/api/admin/photos/:id", handler: downloadPhotoHandler },
+  { method: "GET", path: "/api/admin/units", handler: listUnitsHandler },
+  { method: "POST", path: "/api/admin/units", handler: createUnitHandler },
+  { method: "PUT", path: "/api/admin/units/:id", handler: updateUnitHandler },
+  { method: "GET", path: "/api/admin/blocks", handler: listBlocksHandler },
+  { method: "POST", path: "/api/admin/blocks", handler: createBlockHandler },
+  { method: "DELETE", path: "/api/admin/blocks/:id", handler: deleteBlockHandler },
+  { method: "GET", path: "/api/admin/calendar", handler: calendarHandler },
+  { method: "GET", path: "/api/admin/customers", handler: listCustomersHandler },
+  { method: "PUT", path: "/api/admin/customers/:id", handler: updateCustomerHandler },
+  { method: "GET", path: "/api/admin/settings", handler: getSettingsHandler },
+  { method: "PUT", path: "/api/admin/settings/:key", handler: updateSettingHandler },
+  { method: "GET", path: "/api/admin/audit-logs", handler: auditLogHandler },
 ];
 
 /** Builds the Worker. Tests pass their own services factory; production uses the real one. */

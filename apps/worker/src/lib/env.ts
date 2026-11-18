@@ -32,6 +32,8 @@ export interface Env {
   EMAIL_FROM?: string;
   DB?: D1Database;
   ASSETS?: Fetcher;
+  /** R2 bucket for handover photos (private; served only through /api/admin/photos). */
+  PHOTOS?: R2Bucket;
   /** Workers Rate Limiting binding: a cheap first line against bursts from one IP. */
   RL_BURST?: RateLimit;
 }

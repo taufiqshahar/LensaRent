@@ -49,6 +49,7 @@ export interface BookingRow {
   returned_at: string | null;
   receipt_no: string | null;
   reschedule_used: number;
+  refund_due_sen: number | null;
   notes: string;
   created_at: string;
   updated_at: string;
@@ -106,6 +107,7 @@ const SETTABLE_COLUMNS = new Set([
   "return_inspection",
   "returned_at",
   "reschedule_used",
+  "refund_due_sen",
 ]);
 
 export interface PreparedTransition {
@@ -227,13 +229,15 @@ export function ledgerStatement(
     note?: string;
     createdBy: string;
     at: Date;
+    /** Supply one to refer to the new entry in the same batch (e.g. an audit row). */
+    id?: string;
   },
 ): D1PreparedStatement {
   if (!hasLedgerSign(entry.type, entry.amountSen)) {
     throw new Error(`Ledger ${entry.type} cannot be ${entry.amountSen.toString()}`);
   }
   const values = [
-    newId(),
+    entry.id ?? newId(),
     entry.bookingId,
     entry.type,
     entry.amountSen,

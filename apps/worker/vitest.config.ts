@@ -13,6 +13,7 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: "2026-10-01",
         d1Databases: ["DB"],
+        r2Buckets: ["PHOTOS"],
         bindings: { TEST_MIGRATIONS: migrations },
       },
     }),

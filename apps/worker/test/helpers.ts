@@ -10,6 +10,7 @@ export const TEST_ENV: Env = {
   PHONE_HASH_PEPPER: "test-pepper-test-pepper-test-pepper",
   ACCESS_DEV_EMAIL: TEST_ADMIN,
   DB: env.DB,
+  PHOTOS: env.PHOTOS,
 };
 
 export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {

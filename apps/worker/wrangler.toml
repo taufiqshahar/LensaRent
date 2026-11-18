@@ -45,6 +45,11 @@ database_name = "lensarent-local"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
+# Handover photos: a PRIVATE bucket, never public; served only via /api/admin/photos.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "lensarent-photos-local"
+
 # Burst guard per IP (ADR-007). Business limits live in D1 (src/lib/rateLimit.ts).
 [[ratelimits]]
 name = "RL_BURST"
@@ -66,6 +71,10 @@ database_name = "lensarent-staging"
 # TODO(owner): id printed by `wrangler d1 create lensarent-staging --location apac`.
 database_id = "00000000-0000-0000-0000-000000000001"
 migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "lensarent-photos-staging"
 
 [[env.staging.ratelimits]]
 name = "RL_BURST"
@@ -95,6 +104,10 @@ database_name = "lensarent-production"
 # TODO(owner): id printed by `wrangler d1 create lensarent-production --location apac`.
 database_id = "00000000-0000-0000-0000-000000000002"
 migrations_dir = "migrations"
+
+[[env.production.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "lensarent-photos-production"
 
 [[env.production.ratelimits]]
 name = "RL_BURST"

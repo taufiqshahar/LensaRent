@@ -89,10 +89,14 @@ CREATE TABLE bookings (
   returned_at          TEXT,
   receipt_no           TEXT UNIQUE,
   reschedule_used      INTEGER NOT NULL DEFAULT 0 CHECK (reschedule_used IN (0, 1)),
+  -- Set when a booking enters refund_pending: what the policy says goes back to the customer.
+  refund_due_sen       INTEGER CHECK (refund_due_sen IS NULL
+                         OR (typeof(refund_due_sen) = 'integer' AND refund_due_sen >= 0)),
   notes                TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 2000),
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL,
   CHECK ((status = 'pending_payment') = (hold_expires_at IS NOT NULL)),
+  CHECK (status <> 'refund_pending' OR refund_due_sen IS NOT NULL),
   CHECK (return_at > pickup_at AND return_slot_end > return_at)
 ) STRICT;
 

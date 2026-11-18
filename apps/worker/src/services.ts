@@ -27,6 +27,8 @@ export interface Services {
   burstLimiter: RateLimit | undefined;
   /** Absent when CHIP is not configured: online booking is closed. */
   payments: PaymentProvider | undefined;
+  /** Handover photo storage. Absent: photo upload answers PHOTOS_UNAVAILABLE. */
+  photos: R2Bucket | undefined;
   /** Absent when Resend is not configured: emails wait in the outbox. */
   mailer: Mailer | undefined;
   /** Effective settings: code defaults plus the admin-edited keys (ADR-020). */
@@ -55,6 +57,7 @@ export function createServices(config: AppConfig, env: Env): Services {
             adminEmails: auth.adminEmails,
           }),
     burstLimiter: env.RL_BURST,
+    photos: env.PHOTOS,
     payments: config.chip ? createChipProvider(config.chip) : undefined,
     mailer: config.email
       ? createResendMailer({ apiKey: config.email.resendApiKey, from: config.email.from })

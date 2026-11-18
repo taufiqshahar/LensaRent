@@ -323,12 +323,43 @@ export async function cleanUp(context: JobContext): Promise<void> {
   ]);
 }
 
+/**
+ * Handover photos are evidence for the deposit. Once a booking has closed (completed,
+ * refunded or cancelled — a dispute keeps them) and `retention.photoDays` have passed,
+ * the objects are deleted from R2 and the rows marked deleted.
+ */
+export async function expirePhotos(context: JobContext): Promise<number> {
+  const { services, settings, now } = context;
+  const bucket = services.photos;
+  if (!bucket) return 0;
+  const cutoff = addDays(mytDateString(now), -settings.retention.photoDays);
+  const { results } = await services.db
+    .prepare(
+      `SELECT p.id, p.r2_key FROM handover_photos p JOIN bookings b ON b.id = p.booking_id
+       WHERE p.deleted_at IS NULL AND b.status IN ('completed', 'refunded', 'cancelled')
+         AND b.updated_at < ? LIMIT ?`,
+    )
+    .bind(mytDateTime(cutoff).toISOString(), BATCH)
+    .all<{ id: string; r2_key: string }>();
+  if (results.length === 0) return 0;
+  await bucket.delete(results.map((row) => row.r2_key));
+  await services.db.batch(
+    results.map((row) =>
+      services.db
+        .prepare("UPDATE handover_photos SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+        .bind(now.toISOString(), row.id),
+    ),
+  );
+  return results.length;
+}
+
 const JOBS = [
   ["holds", expireHolds],
   ["overdue", markOverdue],
   ["daily", queueDailyMessages],
   ["outbox", sendOutbox],
   ["cleanup", cleanUp],
+  ["photos", expirePhotos],
 ] as const;
 
 export async function runScheduled(
