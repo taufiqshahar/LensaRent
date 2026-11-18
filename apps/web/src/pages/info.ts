@@ -118,12 +118,20 @@ export const privacyPage: Page = {
               mana anda mengetahui tentang kami.
             </li>
             <li>
+              Tempahan dalam talian: nama, nombor telefon bimbit, alamat emel, tarikh, slot dan
+              lokasi serahan, tambahan yang dipilih, jumlah bayaran dan rekod bayaran.
+            </li>
+            <li>
               Semasa sewaan: empat digit terakhir nombor MyKad, siapa yang mengesahkannya dan bila.
               Kami <strong>tidak</strong> menyimpan salinan atau foto MyKad dalam sistem digital.
             </li>
             <li>
               Untuk keselamatan: alamat IP dan nombor telefon anda disimpan dalam bentuk hash (tidak
               boleh dibaca) untuk menghalang penyalahgunaan borang.
+            </li>
+            <li>
+              Gambar keadaan kamera semasa serahan dan pemulangan (bukan gambar anda atau MyKad
+              anda), sebagai bukti untuk urusan deposit.
             </li>
           </ul>
           <h2>Tujuan</h2>
@@ -134,13 +142,19 @@ export const privacyPage: Page = {
           <h2>Pendedahan dan lokasi data</h2>
           <p>
             Data disimpan dan diproses menggunakan Cloudflare (pangkalan data Cloudflare D1, di
-            pusat data rantau Asia Pasifik). Pengesahan keselamatan borang menggunakan Cloudflare
-            Turnstile. Penyedia ini memproses data bagi pihak kami sahaja.
+            pusat data rantau Asia Pasifik); gambar serahan disimpan dalam storan Cloudflare R2 yang
+            tidak terbuka kepada umum. Pengesahan keselamatan borang menggunakan Cloudflare
+            Turnstile. Bayaran diproses oleh CHIP (nama, emel, telefon dan jumlah bayaran dikongsi
+            untuk tujuan itu; butiran kad atau bank anda tidak sampai kepada kami). Emel pengesahan
+            dan peringatan dihantar melalui Resend. Penyedia ini memproses data bagi pihak kami
+            sahaja.
           </p>
           <h2>Tempoh simpanan</h2>
           <p>
             Kami menyimpan data hanya selama perlu untuk tujuan di atas dan untuk rekod perakaunan
-            yang dikehendaki undang-undang.
+            yang dikehendaki undang-undang. Gambar serahan dipadam secara automatik
+            ${settings.retention.photoDays} hari selepas tempahan ditutup, kecuali jika ada
+            pertikaian. Rekod emel yang telah dihantar dipadam selepas 90 hari.
           </p>
           <h2>Hak anda</h2>
           <p>

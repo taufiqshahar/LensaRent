@@ -21,7 +21,7 @@ Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksan
 | 005 | Pelan & anggaran kos                                          | ⏳           |
 | 006 | Alat ujian dan versi yang dipin                               | ✅           |
 | 007 | Rate limiting dua lapis                                       | ✅           |
-| 008 | Satu Cron Trigger, agihan dalam kod                           | 📌 Fasa 2    |
+| 008 | Satu Cron Trigger, agihan dalam kod                           | ✅           |
 | 009 | Header keselamatan aset statik                                | ✅           |
 | 010 | Codec Firestore menolak nombor bukan integer                  | 🔁 017       |
 | 011 | Cache kunci/token: nilai sahaja, tidak pernah promise         | ✅           |
@@ -33,6 +33,13 @@ Status: ✅ muktamad · ⏳ menunggu kelulusan pemilik · 📌 dicatat, dilaksan
 | 017 | Cloudflare D1 sebagai pangkalan data                          | ✅           |
 | 018 | Cloudflare Access untuk log masuk admin                       | ✅           |
 | 019 | Google Sheet: paparan sahaja, belum dibina                    | ⏳           |
+| 020 | Tetapan: hanya kunci operasi boleh diubah dari panel admin    | ✅           |
+| 021 | Status tempahan: peralihan berpengawal `last_transition_id`   | ✅           |
+| 022 | CHIP: sahkan tandatangan, baca semula, batal sebelum lepaskan | ✅           |
+| 023 | Token status tempahan diterbitkan HMAC, tidak disimpan        | ✅           |
+| 024 | Emel melalui outbox + Resend                                  | ✅           |
+| 025 | Foto serahan dalam R2 peribadi, dipadam selepas tempoh simpan | ✅           |
+| 026 | Sandaran: Time Travel + eksport malam yang disahkan           | ✅           |
 
 ---
 
@@ -254,14 +261,18 @@ tulisan Firestore.
 
 ---
 
-## ADR-008 — Satu Cron Trigger, agihan dalam kod 📌 Fasa 2
+## ADR-008 — Satu Cron Trigger, agihan dalam kod ✅
 
 Pelan Free Cloudflare menghadkan 5 Cron Trigger **per akaun**; staging + production
 dengan 5 jadual masing-masing melebihi had itu.
 
-**Keputusan.** Satu trigger `* * * * *` setiap environment. Handler `scheduled` memilih
-tugas mengikut masa (setiap minit, setiap 5 minit, 03:00 / 08:00 / 18:00 MYT) melalui
-fungsi pure yang diuji.
+**Keputusan.** Satu trigger `* * * * *` setiap environment (`wrangler.toml`).
+`src/scheduled.ts` menjalankan setiap tugas pada setiap larian: tahanan tamat, overdue,
+mesej harian, outbox, pembersihan, foto. Tugas harian memeriksa jam MYT (`08`, `18`, `03`)
+dan bergantung pada `dedupe_key` supaya 60 larian dalam sejam menghantar sekali sahaja —
+lebih teguh daripada mencari minit tepat (larian yang terlepas tidak menghilangkan mesej).
+Setiap tugas idempotent dan terhad (20 baris), dan kegagalan satu tugas tidak menghentikan
+yang lain.
 
 ---
 
@@ -487,6 +498,100 @@ memerlukan semula service account Google, bertentangan dengan matlamat "Cloudfla
 
 ---
 
+## ADR-020 — Tetapan: hanya kunci operasi boleh diubah dari panel admin ✅
+
+Harga, deposit, tambahan, lokasi dan versi polisi muncul dalam laman statik (dijana masa
+build, ADR-015) dan dalam teks undang-undang. Jika admin boleh mengubahnya dalam panel,
+laman akan memaparkan harga yang berbeza daripada yang dicaj.
+
+**Keputusan.** Jadual `settings` hanya menyimpan kunci dalam `ADMIN_EDITABLE_SETTINGS`:
+`handoverSlots`, `peakPeriods`, `holdMinutes`, `minLeadHours`, `buffer`, `retention`.
+`loadSettings` menindih nilai lalai kod dengan baris yang sah; baris yang tidak lagi lulus
+zod diabaikan dan dilog (satu baris rosak tidak boleh menjatuhkan aliran tempahan).
+Kunci lain berubah hanya melalui kod + deploy.
+
+---
+
+## ADR-021 — Status tempahan: peralihan berpengawal `last_transition_id` ✅
+
+D1 tidak mempunyai `SELECT … FOR UPDATE`, dan `UPDATE` yang tidak sepadan bukan kegagalan.
+
+**Keputusan.** Setiap peralihan ialah SATU batch: penyata pertama
+`UPDATE bookings SET status = ?, last_transition_id = <baharu> WHERE id = ? AND status = <dilihat>`;
+setiap penyata lain (event, audit, kunci, lejar, outbox, resit) membawa pengawal
+`EXISTS (… WHERE id = ? AND last_transition_id = <baharu>)`. Jika pihak lain mengubah
+tempahan dahulu, tiada apa yang berlaku dan pemanggil mendapat `StaleBookingError` (HTTP
+409 `BOOKING_CHANGED`). `canTransition` disemak dahulu; lajur yang boleh diubah bersama
+peralihan ada dalam senarai putih. Admin juga menghantar `from` (status yang dilihat) supaya
+skrin lapuk tidak boleh bertindak.
+
+---
+
+## ADR-022 — CHIP: sahkan tandatangan, baca semula, batal sebelum lepaskan ✅
+
+Butiran: `PAYMENT_AND_DEPOSIT_SPEC.md`. Tiga peraturan:
+
+1. Callback mesti lulus RSA-SHA256 atas badan mentah; selepas itu pembelian **dibaca semula**
+   daripada API (badan callback tidak menentukan hasil).
+2. Webhook dan rekonsiliasi cron memanggil fungsi yang sama (`settlePayment`).
+3. Hari tahanan dilepaskan **hanya** selepas CHIP mengesahkan pembelian tidak boleh dibayar
+   (`cancelled/expired/…` atau `POST /cancel/` berjaya). Digabung dengan `due_strict`, ini
+   menutup perlumbaan "dibayar selepas tarikh diberi kepada orang lain".
+
+Ditolak: SDK CHIP (tiada SDK rasmi untuk Workers; `fetch` + Web Crypto memadai); bayaran
+balik automatik melalui API (YAGNI untuk MVP).
+
+---
+
+## ADR-023 — Token status tempahan diterbitkan HMAC, tidak disimpan ✅
+
+Pelanggan perlu melihat status tanpa akaun. Token = `HMAC(PHONE_HASH_PEPPER, "lookup:" +
+bookingId)`; pangkalan data menyimpan SHA-256 token sahaja. Kerana token boleh diterbitkan
+semula, emel boleh membawanya kemudian tanpa ia pernah disimpan. Token bergerak dalam header
+`X-Booking-Token` dan dalam **fragmen** URL emel (`#t=`), yang tidak dihantar oleh pelayar ke
+mana-mana pelayan atau log. Perbandingan masa-tetap (`crypto.subtle.timingSafeEqual`).
+Rujukan salah dan token salah memberi 404 yang sama. Trade-off: menukar pepper membatalkan
+semua pautan status (dan hash telefon) — tukar hanya jika bocor.
+
+---
+
+## ADR-024 — Emel melalui outbox + Resend ✅
+
+Emel tidak dihantar dalam permintaan atau batch tempahan. Batch menulis baris
+`notifications_outbox` (berpengawal, `dedupe_key` UNIQUE); cron menghantar dengan
+`Idempotency-Key` = id baris, mencuba semula 2, 4, 8 … minit (maks 6). Payload hanya id;
+kandungan dijana ketika dihantar, dalam BM, setiap nilai di-escape. Tanpa `RESEND_API_KEY`
+
+- `EMAIL_FROM`, mesej menunggu dalam outbox. Rekod yang dihantar dipadam selepas 90 hari.
+
+Dipilih Resend: REST ringkas, tiada SDK diperlukan, domain sendiri, pelan percuma memadai.
+Alternatif: Cloudflare Email Routing (hanya ke alamat disahkan — tidak sesuai untuk pelanggan).
+
+---
+
+## ADR-025 — Foto serahan dalam R2 peribadi ✅
+
+Bukti keadaan kamera untuk urusan deposit. Bucket R2 **tanpa akses awam**; muat naik dan
+paparan hanya melalui `/api/admin/*` (Access + semakan Worker). Jenis ditentukan oleh
+**bait pertama** (JPEG/PNG/WebP sahaja), had 8 MB, `Cache-Control: no-store`, `nosniff`.
+Serahan memerlukan ≥1 foto `checkout`; pemulangan ≥1 foto `return`. Cron memadam objek
+`retention.photoDays` (lalai 30) selepas tempahan ditutup; pertikaian mengekalkannya.
+Risiko diketahui: foto telefon mungkin mengandungi EXIF/GPS lokasi serahan — hanya admin
+melihatnya; buang EXIF jika foto dikongsi keluar.
+
+---
+
+## ADR-026 — Sandaran: Time Travel + eksport malam yang disahkan ✅
+
+Lapisan 1: D1 Time Travel (point-in-time). Lapisan 2: `.github/workflows/backup.yml` —
+`wrangler d1 export` setiap malam, **dipulihkan ke D1 sementara dan disemak**
+(`scripts/verify-backup.sh`: `quick_check`, migrasi, bilangan baris) sebelum dimuat naik
+ke bucket R2 peribadi `lensarent-backups`. Pulih diuji secara tempatan (18 Nov 2026).
+Keperluan: secret GitHub `CLOUDFLARE_API_TOKEN` (D1 + R2 sahaja) dan `CLOUDFLARE_ACCOUNT_ID`;
+peraturan lifecycle R2 (cadangan: padam selepas 90 hari). Prosedur: `RUNBOOK_MANUAL_FALLBACK.md`.
+
+---
+
 ## Dependency & justifikasi
 
 | Pakej                                                                                           | Di mana        | Sebab                                                                                                                                                                                    |
@@ -521,11 +626,13 @@ had; jika perlu dikecilkan kemudian, `zod/mini` ialah pilihan.
 | JWKS ID token Firebase                                                         | `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com` (diambil, 200) |
 | Polisi TTL dalam `fieldOverrides`                                              | Validator `firebase-tools` sendiri (`FirestoreApi.validateSpec`)                                           |
 | Kunci ujian Turnstile (`1x00000000000000000000AA` dsb.)                        | Kunci ujian yang didokumenkan Cloudflare; **siteverify tidak dapat dicapai dari sesi ini**                 |
+| CHIP: purchases, `due_strict`, callback, `X-Signature`, `/public_key/`, cancel | `docs.chip-in.asia` + spesifikasi OpenAPI (dibaca 18 Nov 2026)                                             |
+| D1 `batch` = satu transaksi; Time Travel; `d1 export`                          | `developers.cloudflare.com/d1` (dibaca 18 Nov 2026); eksport/pulih diuji tempatan                          |
+| Resend `POST /emails`, `Idempotency-Key`                                       | `resend.com/docs/api-reference` (dibaca 18 Nov 2026)                                                       |
+| D1 menolak `PRAGMA integrity_check` (`SQLITE_AUTH`), membenarkan `quick_check` | Percubaan langsung                                                                                         |
 
-**Tidak dapat dibaca terus dalam sesi ini** (hos disekat polisi rangkaian):
-`developers.cloudflare.com`, `firebase.google.com`, `docs.chip-in.asia`. Fasa 0 tidak
-bergantung padanya. **Fasa 2 memerlukan dokumentasi CHIP** — hos perlu dibenarkan ketika
-itu.
+Fasa 2: hos `docs.chip-in.asia`, `developers.cloudflare.com` dan `resend.com` dibenarkan
+dalam environment sesi, dan dokumentasi dibaca terus.
 
 ---
 
@@ -545,3 +652,15 @@ Semua ini nilai dalam `settings/*` (boleh diubah tanpa deploy), ditanda `TO CONF
    sekarang).
 7. **Sempadan pembatalan** — `> 72 jam` refund penuh; `24–72 jam` inklusif; `< 24 jam`
    lucut RM30.
+
+Fasa 2 menambah (had teknikal, boleh diubah atas permintaan):
+
+8. **Ufuk tempahan** — paling jauh 365 hari ke hadapan (`MAX_BOOKING_DAYS_AHEAD`).
+9. **Tahanan belum bayar** — maksimum 2 serentak setiap pelanggan; 5 cubaan / 10 minit
+   setiap IP dan setiap telefon.
+10. **Mesej harian** — ringkasan admin 08:00 MYT; peringatan pelanggan 18:00 MYT untuk
+    pengambilan esok.
+11. **Senarai semak serahan** — 6 item dalam panel admin (`adminOps.ts`).
+12. **Bayaran balik** — dihantar manual oleh admin (DuitNow/CHIP), kemudian direkod.
+13. **Tahap pelanggan** — `new` → `verified` selepas semakan MyKad di serahan →
+    `returning` selepas tempahan selesai. Deposit sama untuk semua tahap (RM100) buat masa ini.

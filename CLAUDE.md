@@ -4,9 +4,11 @@ Booking system for renting a DJI Osmo Pocket 4P (northern Peninsular Malaysia). 
 brief is `CLAUDE_CODE_MASTER_PROMPT.md`; decisions that refine or override it are in
 `docs/DECISIONS.md`. Read both before changing behaviour.
 
-**Status:** Fasa 0 (foundation) and Fasa 1 (landing page, interest form, admin leads) are
-complete but not yet deployed. **Stack: Cloudflare only** — Workers, D1 (data), Access
-(admin sign-in), Turnstile. Firebase was removed on 18 Nov 2026 (ADR-017/018); the master
+**Status:** Fasa 0 (foundation), Fasa 1 (landing page, interest form, admin leads) and
+Fasa 2 (online booking, CHIP payments, cron, email, admin operations, photos, backups) are
+complete but not yet deployed. **Stack: Cloudflare only** — Workers, D1 (data), R2
+(handover photos, backups), Access (admin sign-in), Turnstile — plus CHIP (payments) and
+Resend (email). Firebase was removed on 18 Nov 2026 (ADR-017/018); the master
 prompt's Firebase sections are superseded. Work proceeds one phase at a time and STOPS
 for the owner's approval after each phase (master prompt §3).
 
@@ -25,6 +27,7 @@ for the owner's approval after each phase (master prompt §3).
 | Deploy              | `wrangler d1 migrations apply DB --env <env> --remote`, then `wrangler deploy --env <env>` |
 
 Run one Worker test file: `pnpm --filter @lensarent/worker exec vitest run test/unit/logger.test.ts`.
+Verify a D1 export restores: `apps/worker/scripts/verify-backup.sh <export.sql>`.
 Locally the admin is `ACCESS_DEV_EMAIL` (wrangler.toml); deployed, it is Cloudflare Access.
 
 ## Layout
@@ -50,7 +53,8 @@ Locally the admin is `ACCESS_DEV_EMAIL` (wrangler.toml); deployed, it is Cloudfl
    (`acquireDayLocks`). Releasing a lock DELETES the row. Never insert locks one at a time,
    never use `INSERT OR IGNORE` / `ON CONFLICT DO NOTHING` for locks, never add an
    "inactive" flag.
-5. **Status changes** go through `canTransition` from `@lensarent/shared`, in one batch with
+5. **Status changes** go through `prepareTransition`/`runTransition` (`lib/bookings.ts`),
+   which check `canTransition` and guard every statement on `last_transition_id`, in one batch with
    the `booking_events` and `audit_logs` rows.
 6. **Ledger entries are append-only.** Create only; a correction is a reversing entry. The
    table gets UPDATE/DELETE-blocking triggers like `audit_logs`.
@@ -81,7 +85,7 @@ Locally the admin is `ACCESS_DEV_EMAIL` (wrangler.toml); deployed, it is Cloudfl
   make the production build pass — get the owner's confirmation.
 - Build-time code imports shared via `src/render/shared.ts` (relative path); browser code
   imports `@lensarent/shared/<module>`. Browser code must not import modules that pull in
-  zod (keep labels in `leadOptions.ts`).
+  zod (keep labels in `leadOptions.ts` / `bookingLabels.ts`).
 - Admin endpoints start with `requireAdmin(context, { mutating })`; mutating ones need the
   same-origin check it performs. Every admin change writes `auditWrite()` in the same commit.
 - Identifiers that become document ids (IP, phone, email) are always hashed first.
@@ -91,6 +95,13 @@ Locally the admin is `ACCESS_DEV_EMAIL` (wrangler.toml); deployed, it is Cloudfl
 - Times are stored as ISO-8601 UTC strings from `services.now()`; calendar days as
   `yyyy-MM-dd` (MYT).
 - Tests share one local D1 database: use unique ids (`uniqueId()`) and never clear tables.
+  Booking tests live in a random far-future calendar (`bookingWorld()`); the fleet is two
+  fixture units seeded in `test/applyMigrations.ts` — never create another ACTIVE unit in a test.
+- Payments: CHIP only through `lib/chip.ts` (`PaymentProvider`); webhook and cron settle via
+  `settlePayment`. Never free a hold's days before CHIP confirms the purchase is unpayable.
+- Emails are queued in `notifications_outbox` inside the same batch (payload = ids only) and
+  sent by the cron; never send email inside a request.
+- Admin-editable settings are only the keys in `ADMIN_EDITABLE_SETTINGS` (ADR-020).
 - Test fixtures must not look like real credentials: build PEM blocks with `fakePem()`
   and keep fake tokens short and low-entropy. `.gitleaksignore` is only for findings
   confirmed to be fake.

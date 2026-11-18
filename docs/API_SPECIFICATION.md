@@ -3,8 +3,8 @@
 Semua endpoint di bawah `/api/*` pada origin yang sama dengan laman, jadi tiada CORS.
 Badan permintaan dan respons dalam JSON (`application/json`), kecuali eksport CSV.
 
-**Status:** endpoint Fasa 1 sahaja. Endpoint tempahan, webhook dan operasi admin lain
-(master prompt §10) ditambah pada Fasa 2.
+**Status:** Fasa 1 (lead) dan Fasa 2 (tempahan, bayaran, operasi admin). Butiran aliran
+bayaran: `PAYMENT_AND_DEPOSIT_SPEC.md`.
 
 ## Konvensyen
 
@@ -81,6 +81,50 @@ had per IP (10/jam) dan per telefon (3/hari) → simpan.
 
 `201` → `{ "ok": true }` · `400` `VALIDATION_FAILED` · `403` `TURNSTILE_FAILED` · `415` · `429`
 
+### `GET /api/config`
+
+Apa yang perlu oleh borang `/tempah`: `bookingOpen` (CHIP dikonfigurasi + ada slot aktif +
+ada unit aktif), `today` (MYT), `maxDaysAhead`, `pricing`, `depositSen`, tambahan aktif,
+lokasi aktif, slot aktif, `minLeadHours`, `maxRentalDays`, `holdMinutes`, `policyVersions`.
+Semuanya maklumat awam.
+
+### `GET /api/availability?from=yyyy-MM-dd&to=yyyy-MM-dd`
+
+Julat ≤ 62 hari, dipotong ke hari ini … ufuk tempahan. Respons
+`{ from, to, unavailable: ["yyyy-MM-dd", …] }` — hari tanpa unit kosong. Petunjuk kalendar
+sahaja (tidak mendedahkan bilangan unit); semakan sebenar ialah hold.
+
+### `POST /api/quote`
+
+Badan: `pickupDate`, `pickupSlotId`, `pickupLocationId`, `returnDate`, `returnSlotId`,
+`returnLocationId`, `addOns: [{code, qty}]`. **Tiada telefon** (ia akan mendedahkan tahap
+pelanggan). Respons: `rentalDays`, `pickupAt`, `returnAt`, `returnSlotEnd`, `addOnLines`,
+`includedItems`, `breakdown{rentalSen, addOnsSen, meetupSen, discountSen, depositSen,
+totalPayableSen}`, `available`. Masalah tempoh dijawab `400` dengan medan yang perlu diubah.
+
+### `POST /api/bookings/hold`
+
+Badan: medan quote + `name`, `phone`, `email`, `consent{terms:true, privacy:true}`,
+`turnstileToken` (action `booking`). Urutan: had burst → zod → peraturan tempoh → Turnstile
+→ had D1 (5/10 min setiap IP dan telefon) → pelanggan (disekat ⇒ `403 BOOKING_NOT_ALLOWED`;
+≥ 2 tahanan terbuka ⇒ `409 TOO_MANY_HOLDS`) → kunci hari pada unit kosong pertama
+(`409 SLOT_UNAVAILABLE`) → pembelian CHIP (`502 PAYMENT_UNAVAILABLE`, tahanan dibatalkan).
+CHIP tidak dikonfigurasi ⇒ `503 BOOKING_CLOSED`.
+`201`: `{ refCode, lookupToken, checkoutUrl, holdExpiresAt, breakdown }`.
+
+### `GET /api/bookings/lookup?ref=PK-XXXXXX`
+
+Header `X-Booking-Token: <lookupToken>`. Rujukan atau token salah ⇒ `404` yang sama.
+Respons tanpa data peribadi: `refCode`, `status`, masa & lokasi, `rentalDays`, `addOns`,
+`breakdown`, `holdExpiresAt`, `checkoutUrl` (hanya jika tahanan masih sah), `receiptNo`.
+
+### `POST /api/webhooks/chip`
+
+`success_callback` CHIP. `401` jika `X-Signature` tidak sah. Selepas sah: idempotensi pada
+`purchaseId:event_type`, pembelian dibaca semula, kemudian `settlePayment`. `2xx` hanya
+apabila selesai (`confirmed`, `already_processed`, `mismatch`, `paid_after_close`,
+`not_paid`, `ignored`); selain itu bukan-2xx supaya CHIP mencuba semula.
+
 ## Admin
 
 Log masuk dan log keluar diuruskan oleh Cloudflare Access (log keluar:
@@ -138,3 +182,40 @@ Sel yang bermula dengan `= + - @` diteutralkan.
 
 `200` → `{ "ok": true }`. Entri `audit_logs` (nama medan yang berubah sahaja) ditulis dalam
 transaksi yang sama, dan hanya jika lead itu wujud. `400` · `401` · `403 FORBIDDEN_ORIGIN` · `404`
+
+### Tempahan (Fasa 2)
+
+Setiap tindakan mengubah menghantar `from` (status yang dilihat admin). Status sudah berubah
+⇒ `409 BOOKING_CHANGED`; peralihan dilarang ⇒ `409 INVALID_TRANSITION`.
+
+| Kaedah & laluan                              | Badan / query                                                          | Kesan                                                                                                               |
+| -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/admin/bookings`                    | `status`, `day` (MYT: ambil atau pulang hari itu), `before`, `limit`   | Senarai terbaru dahulu; kursor `<createdAt>~<id>` dalam `next`                                                      |
+| `GET /api/admin/bookings/:id`                | —                                                                      | Tempahan, event, bayaran, lejar, foto, baki deposit, peralihan dibenarkan, cadangan caj lewat, pratonton pembatalan |
+| `POST /api/admin/bookings/:id/transition`    | `{from, to: ready_for_pickup \| disputed, reason}`                     | Peralihan tanpa data tambahan                                                                                       |
+| `POST /api/admin/bookings/:id/cancel`        | `{from, initiator: customer \| business \| no_show, reason}`           | Tahanan: batal CHIP dahulu → `cancelled`. Dibayar: `refund_pending` + `refund_due_sen`, hari dilepas                |
+| `POST /api/admin/bookings/:id/refund`        | `{from: refund_pending, amountSen, method, reference, note}`           | Rekod bayaran balik yang dihantar → `refunded`                                                                      |
+| `POST /api/admin/bookings/:id/photos?stage=` | badan = imej mentah (JPEG/PNG/WebP, ≤ 8 MB)                            | Simpan dalam R2                                                                                                     |
+| `POST /api/admin/bookings/:id/handover`      | `{from, idLast4, checklist, accessories, note}`                        | Perlu ≥1 foto `checkout` (`409 PHOTO_REQUIRED`) → `active_rental`                                                   |
+| `POST /api/admin/bookings/:id/return`        | `{from, returnedAt?, checklist, accessories, note}`                    | Perlu ≥1 foto `return` → `return_inspection`; balas `lateFeeSuggestionSen`                                          |
+| `POST /api/admin/bookings/:id/settle`        | `{from, lateFeeSen, damageSen, refundMethod, refundReference, note}`   | Potongan ≤ baki deposit; lejar; → `completed`; pelanggan `returning`                                                |
+| `POST /api/admin/bookings/:id/ledger`        | `{type, amountSen, method, reference, note}` atau `{reversesId, note}` | Entri manual bertanda, atau pembalikan (sekali)                                                                     |
+| `POST /api/admin/bookings/:id/reschedule`    | `{from, period: <badan quote>}`                                        | Sekali, harga sama, unit sama, satu batch                                                                           |
+| `GET /api/admin/photos/:id`                  | —                                                                      | Imej, `no-store`                                                                                                    |
+
+### Armada, pelanggan, tetapan, audit
+
+| Kaedah & laluan                     | Nota                                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `GET/POST /api/admin/units`         | Cipta: `{id, name, model, serialNumber, status, accessories, sortOrder}`                 |
+| `PUT /api/admin/units/:id`          | Tidak boleh meninggalkan `active` jika ada tempahan akan datang (`UNIT_HAS_BOOKINGS`)    |
+| `GET/POST /api/admin/blocks`        | `{unitId, from, to, reason}` → kunci `maintenance`; konflik ⇒ `409` + `conflictingDates` |
+| `DELETE /api/admin/blocks/:id`      | Lepaskan hari blok                                                                       |
+| `GET /api/admin/calendar?from&to`   | Semua kunci (≤ 62 hari) dengan rujukan/status tempahan                                   |
+| `GET /api/admin/customers?phone=`   | Carian tepat melalui hash telefon; tanpa `phone` = 100 terkini                           |
+| `PUT /api/admin/customers/:id`      | `{tier, blocked, notes}`                                                                 |
+| `GET /api/admin/settings`           | Nilai berkesan + senarai kunci yang boleh diubah (ADR-020)                               |
+| `PUT /api/admin/settings/:key`      | `{value}`, disahkan zod; kunci lain ⇒ `404`                                              |
+| `GET /api/admin/audit-logs?before=` | 100 setiap halaman                                                                       |
+
+Setiap perubahan admin menulis `audit_logs` dalam batch yang sama.

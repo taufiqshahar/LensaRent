@@ -79,14 +79,16 @@ Endpoint: lihat [API_SPECIFICATION.md](API_SPECIFICATION.md).
 
 Vite multi-halaman, TypeScript, tanpa framework UI (ADR-015).
 
-| Bahagian         | Kandungan                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------ |
-| `src/pages/*.ts` | Setiap halaman sebagai fungsi yang memulangkan HTML                                  |
-| `src/content/`   | `facts.ts` (angka daripada settings), `site.ts` (teks BM; `draft()`)                 |
-| `src/render/`    | Templat `html` yang meng-escape, susun atur, pengawal draf                           |
-| `src/main.ts`    | Kalkulator harga + borang minat (Turnstile dimuat malas)                             |
-| `src/admin.ts`   | Panel admin: leads, status, nota, WhatsApp, CSV                                      |
-| `vite.config.ts` | Menjana HTML, `robots.txt`, `sitemap.xml`; menolak build production yang belum sedia |
+| Bahagian         | Kandungan                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `src/pages/*.ts` | Setiap halaman sebagai fungsi yang memulangkan HTML                                                     |
+| `src/content/`   | `facts.ts` (angka daripada settings), `site.ts` (teks BM; `draft()`)                                    |
+| `src/render/`    | Templat `html` yang meng-escape, susun atur, pengawal draf                                              |
+| `src/main.ts`    | Kalkulator harga + borang minat (Turnstile dimuat malas)                                                |
+| `src/booking.ts` | `/tempah`: slot dari `/api/config`, harga dari `/api/quote`, hold → checkout CHIP                       |
+| `src/status.ts`  | `/tempahan`: status untuk pemegang token (localStorage atau fragmen `#t=` emel)                         |
+| `src/admin.ts`   | Shell panel admin + leads; `adminOps.ts`: hari ini, tempahan, kalendar, unit, pelanggan, tetapan, audit |
+| `vite.config.ts` | Menjana HTML, `robots.txt`, `sitemap.xml`; menolak build production yang belum sedia                    |
 
 ## Aliran permintaan
 
@@ -112,7 +114,22 @@ Vite multi-halaman, TypeScript, tanpa framework UI (ADR-015).
 
 ## Apa yang belum ada
 
-| Fasa | Kandungan                                                                                                         |
-| ---- | ----------------------------------------------------------------------------------------------------------------- |
-| 2    | Ketersediaan, hold, checkout CHIP, webhook, halaman status, operasi admin, outbox email, cron, backup luar talian |
-| 3    | Laporan, kod referral, automasi retention                                                                         |
+| Fasa | Kandungan                                 |
+| ---- | ----------------------------------------- |
+| 3    | Laporan, kod referral, automasi retention |
+
+Fasa 2 (siap): ketersediaan, quote, hold, checkout CHIP, webhook + rekonsiliasi, halaman
+status, operasi admin (serahan, pemulangan, deposit, pembatalan, bayaran balik, tukar
+tarikh, lejar), foto R2, outbox emel Resend, satu cron, sandaran malam yang disahkan.
+
+### Fasa 2 di Worker
+
+| Fail                                                                                       | Peranan                                                                       |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `lib/bookings.ts`                                                                          | Peralihan berpengawal (ADR-021), entri lejar bertanda, baki deposit           |
+| `lib/holds.ts`                                                                             | Pelanggan, tahanan (kunci + tempahan satu batch), mula bayaran, batal tahanan |
+| `lib/chip.ts`                                                                              | Adapter CHIP (`PaymentProvider`) — boleh diganti gerbang lain                 |
+| `lib/settlement.ts`                                                                        | Satu fungsi penyelesaian bayaran untuk webhook dan cron                       |
+| `lib/outbox.ts`, `lib/emails.ts`, `lib/resend.ts`                                          | Barisan emel, templat BM, penghantar                                          |
+| `scheduled.ts`                                                                             | Tugas cron                                                                    |
+| `routes/bookings.ts`, `webhooks.ts`, `adminBookings.ts`, `adminFleet.ts`, `adminPhotos.ts` | Laluan HTTP                                                                   |

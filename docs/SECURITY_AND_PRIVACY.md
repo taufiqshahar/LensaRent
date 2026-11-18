@@ -103,13 +103,24 @@ tiada PII yang ditanam sampai ke output.
 - ⚠️ PDPA s.7(3): notis privasi perlu dalam BM **dan Inggeris**. Draf semasa BM sahaja.
 - ⚠️ Tempoh simpanan rekod kewangan: **perlu disahkan dengan akauntan**.
 - Audit log merekod nama medan yang berubah, bukan nilainya.
+- ✅ Fasa 2: MyKad — 4 digit terakhir sahaja, dengan pengesah dan masa (CHECK dalam D1);
+  tiada salinan atau foto. Foto serahan ialah foto kamera, dalam R2 peribadi, dipadam
+  `retention.photoDays` selepas tempahan ditutup (ADR-025).
+- ✅ Token status tempahan tidak disimpan; hanya SHA-256 (ADR-023). Paparan status tidak
+  mengandungi nama, telefon atau emel.
+- ✅ Pemproses data baharu dinyatakan dalam notis privasi: CHIP (bayaran), Resend (emel).
+- ✅ Emel yang dihantar dan rekod webhook dipadam selepas 90 hari.
 
 ## Risiko terbuka
 
-| Risiko                                                    | Mitigasi / status                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------- |
-| Access belum diuji dengan akaun sebenar                   | Semakan pertama selepas deploy staging                        |
-| Pepijat kod Worker                                        | Kekangan D1 sebagai lapisan kedua; ujian; semakan setiap fasa |
-| Kandungan undang-undang ialah draf                        | Build production ditolak sehingga disahkan                    |
-| Tindakan GitHub dirujuk dengan tag major, bukan SHA       | Pin ke SHA sebelum production                                 |
-| URL CSV rahsia untuk Google Sheet (jika dipilih, ADR-019) | Belum dibina; perlu keputusan pemilik                         |
+| Risiko                                                    | Mitigasi / status                                                 |
+| --------------------------------------------------------- | ----------------------------------------------------------------- |
+| Access belum diuji dengan akaun sebenar                   | Semakan pertama selepas deploy staging                            |
+| Pepijat kod Worker                                        | Kekangan D1 sebagai lapisan kedua; ujian; semakan setiap fasa     |
+| Kandungan undang-undang ialah draf                        | Build production ditolak sehingga disahkan                        |
+| Tindakan GitHub dirujuk dengan tag major, bukan SHA       | Pin ke SHA sebelum production                                     |
+| URL CSV rahsia untuk Google Sheet (jika dipilih, ADR-019) | Belum dibina; perlu keputusan pemilik                             |
+| Callback CHIP palsu                                       | Tandatangan RSA + pembelian dibaca semula dari API (ADR-022)      |
+| Tarikh "disorok" oleh tahanan tanpa bayar                 | Turnstile, 5/10 min setiap IP & telefon, maks 2 tahanan terbuka   |
+| Kunci ujian CHIP di production                            | Hold menolak pembelian `is_test` di production dan membatalkannya |
+| EXIF/GPS dalam foto serahan                               | Admin sahaja; jangan kongsi foto keluar tanpa membuang EXIF       |

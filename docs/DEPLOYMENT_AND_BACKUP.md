@@ -97,14 +97,28 @@ binding/secret tertinggal (`500` generik; butiran dalam Workers Logs).
 - [ ] Jika `*.workers.dev` masih aktif: `/api/admin/leads` di situ → `401`.
 - [ ] iOS Safari & Android Chrome: borang dan admin.
 
+### Fasa 2 (staging, kunci UJIAN CHIP)
+
+- [ ] Tetapkan slot sebenar dalam **Admin → Tetapan → handoverSlots**; tambah unit aktif.
+- [ ] `/tempah` → hold → halaman CHIP ujian → bayar → kembali ke `/tempahan` → "Disahkan";
+      emel pengesahan + emel admin diterima; resit `R-YYYY-00001`.
+- [ ] Biarkan satu hold tamat tanpa bayar → selepas ~2 minit status "Dibatalkan", tarikh kosong.
+- [ ] Kitaran admin: sedia → foto → serah → foto → pulang → selesai deposit; semak lejar baki 0.
+- [ ] Pembatalan + rekod bayaran balik; tukar tarikh sekali.
+- [ ] Jalankan `Backup D1` secara manual (`workflow_dispatch`, environment `staging`).
+
 ## 4. Backup
 
 - **D1 Time Travel**: pulih ke mana-mana minit dalam 7 hari (Free) atau 30 hari (Workers
   Paid). Contoh: `wrangler d1 time-travel restore lensarent-production --timestamp=<ISO>`.
   Ia menimpa pangkalan data semasa, jadi **uji ke staging dahulu**.
-- **Salinan luar talian (Fasa 2)**: GitHub Action harian `wrangler d1 export … --output`
-  ke Cloudflare R2, dengan runbook pemulihan yang diuji sebelum launch.
-- Sehingga itu, leads juga boleh dieksport sebagai CSV dari panel admin.
+- **Salinan luar talian**: `.github/workflows/backup.yml` setiap malam 03:23 MYT —
+  eksport, **pulih ke D1 sementara dan semak** (`apps/worker/scripts/verify-backup.sh`),
+  kemudian muat naik ke bucket R2 peribadi `lensarent-backups`. Prosedur pemulihan penuh:
+  `RUNBOOK_MANUAL_FALLBACK.md`. Diuji tempatan 18 Nov 2026.
+- Persediaan: `wrangler r2 bucket create lensarent-backups`; peraturan lifecycle padam
+  selepas 90 hari; secret repo `CLOUDFLARE_API_TOKEN` (kebenaran D1 Edit + R2 Edit sahaja)
+  dan `CLOUDFLARE_ACCOUNT_ID`. Tanpa secret, job melangkau dengan amaran.
 
 Arahan dan pilihan di atas disahkan dengan `--help` wrangler 4.160. ⚠️ Tempoh 7/30 hari
 mengikut pelan diambil daripada sumber sekunder; sahkan di halaman harga.

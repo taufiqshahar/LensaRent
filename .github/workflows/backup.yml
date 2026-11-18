@@ -1,0 +1,83 @@
+name: Backup D1
+
+# Nightly SQL export of the production database to a private R2 bucket, verified by
+# restoring it into a throw-away local D1 before upload. D1 Time Travel (point-in-time
+# restore for 30 days) is the first line; these exports are the off-database copy.
+# See docs/DEPLOYMENT_AND_BACKUP.md for setup and the restore procedure.
+#
+# Needs repository secrets CLOUDFLARE_API_TOKEN (D1 Edit + R2 Edit on this account
+# only) and CLOUDFLARE_ACCOUNT_ID. Until they exist the job skips itself.
+
+on:
+  schedule:
+    # 19:23 UTC = 03:23 MYT, after the Worker's 03:00 clean-up.
+    - cron: "23 19 * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "staging or production"
+        default: production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-d1
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ inputs.environment || 'production' }}
+    steps:
+      - name: Skip until Cloudflare credentials are configured
+        id: ready
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not set; no backup taken."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          case "$TARGET" in staging|production) ;; *) echo "Bad environment" >&2; exit 1 ;; esac
+
+      - if: steps.ready.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.ready.outputs.run == 'true'
+        uses: pnpm/action-setup@v4
+
+      - if: steps.ready.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.ready.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Export
+        if: steps.ready.outputs.run == 'true'
+        working-directory: apps/worker
+        run: |
+          stamp="$(date -u +%Y-%m-%dT%H%MZ)"
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+          npx wrangler d1 export DB --remote --env "$TARGET" --output "$RUNNER_TEMP/d1.sql"
+
+      - name: Verify by restoring into a throw-away database
+        if: steps.ready.outputs.run == 'true'
+        working-directory: apps/worker
+        run: scripts/verify-backup.sh "$RUNNER_TEMP/d1.sql"
+
+      - name: Upload to R2 (private bucket lensarent-backups)
+        if: steps.ready.outputs.run == 'true'
+        working-directory: apps/worker
+        run: |
+          gzip -9 "$RUNNER_TEMP/d1.sql"
+          npx wrangler r2 object put "lensarent-backups/d1/$TARGET/$STAMP.sql.gz" \
+            --file "$RUNNER_TEMP/d1.sql.gz" --content-type application/gzip --remote
+          rm -f "$RUNNER_TEMP/d1.sql.gz"

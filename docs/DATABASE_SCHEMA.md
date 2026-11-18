@@ -80,24 +80,25 @@ batch yang sama melalui index `expires_at`. Lihat ADR-007.
 **Append-only dikuatkuasakan oleh pangkalan data**: trigger `BEFORE UPDATE` dan
 `BEFORE DELETE` menolak sebarang perubahan (diuji).
 
-## Fasa 2 (migrasi akan datang)
+## Fasa 2 — `migrations/0002_bookings.sql`
 
-Tidak dicipta lagi; reka bentuk mengikut master prompt §4, diterjemah ke SQL:
+| Jadual                 | Isi & kekangan utama                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings`             | Kunci admin-editable sahaja (ADR-020); `value` JSON sah                                                                                                                                                                                                                                                                          |
+| `units`                | `status` active/maintenance/retired; aksesori JSON                                                                                                                                                                                                                                                                               |
+| `customers`            | Satu per telefon (`phone_hash` UNIQUE); `tier`, `completed_count`, `blocked`, nota                                                                                                                                                                                                                                               |
+| `bookings`             | Snapshot pelanggan, slot & masa, `locked_dates`, harga dalam sen dengan CHECK `total = sewa + tambahan + lokasi − diskaun + deposit`; `status` CHECK; `last_transition_id` (ADR-021); `hold_expires_at` wujud ⇔ `pending_payment`; `refund_due_sen` wajib dalam `refund_pending`; `id_last4` 4 digit sahaja; `receipt_no` UNIQUE |
+| `booking_events`       | Sejarah status; append-only (trigger)                                                                                                                                                                                                                                                                                            |
+| `payments`             | `provider_ref` UNIQUE; `expected_sen` > 0; `status` created/paid/mismatch/cancelled; `is_test`                                                                                                                                                                                                                                   |
+| `ledger_entries`       | Append-only (trigger); `amount_sen` integer ≠ 0; tanda ditentukan jenis, atau bertentangan jika `reverses_id` (UNIQUE: satu pembalikan sahaja)                                                                                                                                                                                   |
+| `webhook_events`       | PK `(provider, event_key)`; dipadam selepas 90 hari                                                                                                                                                                                                                                                                              |
+| `notifications_outbox` | Emel menunggu/dihantar/gagal; `dedupe_key` UNIQUE; payload id sahaja                                                                                                                                                                                                                                                             |
+| `receipt_counters`     | Satu baris setiap tahun MYT; `last_number` naik dalam batch pengesahan                                                                                                                                                                                                                                                           |
+| `maintenance_blocks`   | Hari-harinya ialah `availability_locks` jenis `maintenance`                                                                                                                                                                                                                                                                      |
+| `handover_photos`      | Metadata objek R2; `content_type` jpeg/png/webp; ≤ 8 MB; `deleted_at` selepas tempoh simpan                                                                                                                                                                                                                                      |
 
-| Jadual                 | Nota utama                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `settings`             | `key` PK, `value` JSON (disahkan `settingsSchemas`), `updated_by`, `updated_at` |
-| `units`                | `status` CHECK (`active`/`maintenance`/`retired`); aksesori sebagai JSON        |
-| `customers`            | `phone_hash` **UNIQUE**: keunikan oleh pangkalan data, bukan lagi kod           |
-| `bookings`             | `ref_code` UNIQUE, `lookup_token_hash`, wang INTEGER sen, `status` CHECK        |
-| `booking_events`       | Append-only (trigger)                                                           |
-| `payments`             | `provider_ref` UNIQUE                                                           |
-| `ledger_entries`       | **Append-only (trigger)**, `amount_sen` INTEGER bertanda, `type` CHECK          |
-| `webhook_events`       | PK `(provider, event_key)`: INSERT kedua gagal → `already_processed`            |
-| `notifications_outbox` | `status` CHECK, `attempts`, `send_after`                                        |
-| `receipt_counters`     | `year` PK; `UPDATE … SET last_number = last_number + 1 RETURNING last_number`   |
-
-**Tiada imej MyKad dan tiada nombor IC penuh** — hanya 4 digit akhir dalam `bookings`.
+Indeks: status + pickup, pickup, return slot end, pelanggan, tamat tahanan (separa), lejar
+ikut tempahan, outbox ikut `status, send_after`.
 
 ## Mengubah skema
 
