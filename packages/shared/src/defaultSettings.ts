@@ -2,7 +2,7 @@ import type { AllSettings } from "./schemas";
 
 /**
  * Initial `settings/*` values (master prompt §5). These seed a new environment and back the
- * tests; the live values are the Firestore documents, which an admin can change without a
+ * tests; the live values are the `settings` rows, which an admin can change without a
  * deploy. Items marked TO CONFIRM are placeholders awaiting the business owner's decision.
  */
 export const DEFAULT_SETTINGS: AllSettings = {

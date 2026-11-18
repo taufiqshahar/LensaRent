@@ -1,4 +1,4 @@
-import type { LeadDocument, LeadStatus } from "@lensarent/shared";
+import type { LeadSource, LeadStatus, LeadUsage } from "@lensarent/shared";
 import {
   LEAD_SOURCE_LABELS,
   LEAD_STATUSES,
@@ -7,16 +7,13 @@ import {
   addDays,
   dateStringSchema,
   formatMyMobile,
-  leadDocumentSchema,
   leadUpdateSchema,
   mytDateString,
   mytDateTime,
 } from "@lensarent/shared";
 import { z } from "zod";
-import { auditWrite } from "../lib/audit";
+import { auditStatementIf } from "../lib/audit";
 import { toCsv } from "../lib/csv";
-import type { Firestore, QuerySpec } from "../lib/firestore";
-import { isFirestoreError, serverTimestamp, updateDoc } from "../lib/firestore";
 import {
   API_SECURITY_HEADERS,
   errorResponse,
@@ -24,7 +21,6 @@ import {
   readJson,
   validationErrorResponse,
 } from "../lib/http";
-import type { Logger } from "../lib/logger";
 import type { Handler } from "../router";
 import { requireAdmin } from "./adminAuth";
 import { fieldErrors } from "./validation";
@@ -33,7 +29,6 @@ const LEAD_ID = /^[A-Za-z0-9]{20}$/;
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 200;
 const EXPORT_MAX_ROWS = 5000;
-const EXPORT_PAGE = 1000;
 
 const filterSchema = z
   .object({
@@ -48,9 +43,11 @@ const filterSchema = z
   });
 type LeadFilter = z.infer<typeof filterSchema>;
 
-const listSchema = z.object({
-  /** Keyset cursor: only leads submitted strictly before this instant. */
-  before: z.iso.datetime().optional(),
+/** Keyset cursor `<createdAt>~<id>`: stable paging even when two leads share a timestamp. */
+const CURSOR = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)~([A-Za-z0-9]{20})$/;
+
+const pageSchema = z.object({
+  before: z.string().regex(CURSOR).optional(),
   limit: z.coerce.number().int().min(1).max(PAGE_MAX).default(PAGE_DEFAULT),
 });
 
@@ -68,71 +65,81 @@ function searchParams(url: URL): Record<string, string> {
   return params;
 }
 
+interface LeadRow {
+  id: string;
+  name: string;
+  phone_e164: string;
+  desired_date: string | null;
+  usage: LeadUsage;
+  source: LeadSource;
+  status: LeadStatus;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LeadView {
   id: string;
   name: string;
   phoneE164: string;
   desiredDate: string | null;
-  usage: LeadDocument["usage"];
-  source: LeadDocument["source"];
+  usage: LeadUsage;
+  source: LeadSource;
   status: LeadStatus;
   notes: string;
   createdAt: string;
   updatedAt: string;
 }
 
+function toView(row: LeadRow): LeadView {
+  return {
+    id: row.id,
+    name: row.name,
+    phoneE164: row.phone_e164,
+    desiredDate: row.desired_date,
+    usage: row.usage,
+    source: row.source,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Newest first. Conditions are built only from validated values, always as bound parameters. */
 async function queryLeads(
-  db: Firestore,
+  db: D1Database,
   filter: LeadFilter,
-  before: Date | undefined,
+  before: { createdAt: string; id: string } | undefined,
   limit: number,
-  logger: Logger,
 ): Promise<LeadView[]> {
-  const where: NonNullable<QuerySpec["where"]>[number][] = [];
-  if (filter.status) where.push(["status", "==", filter.status]);
-  if (filter.from) where.push(["createdAt", ">=", mytDateTime(filter.from)]);
-  const upperBounds = [
-    ...(filter.to ? [mytDateTime(addDays(filter.to, 1))] : []),
-    ...(before ? [before] : []),
-  ];
-  if (upperBounds.length > 0) {
-    where.push([
-      "createdAt",
-      "<",
-      new Date(Math.min(...upperBounds.map((date) => date.getTime()))),
-    ]);
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+  if (filter.status) {
+    conditions.push("status = ?");
+    params.push(filter.status);
   }
-
-  // Index: leads (status ASC, createdAt DESC) — firebase/firestore.indexes.json.
-  const snapshots = await db.query({
-    collection: "leads",
-    where,
-    orderBy: [["createdAt", "desc"]],
-    limit,
-  });
-
-  return snapshots.flatMap((snapshot) => {
-    const parsed = leadDocumentSchema.safeParse(snapshot.data);
-    if (!parsed.success) {
-      logger.error("lead.unreadable", { leadId: snapshot.id });
-      return [];
-    }
-    const lead = parsed.data;
-    return [
-      {
-        id: snapshot.id,
-        name: lead.name,
-        phoneE164: lead.phoneE164,
-        desiredDate: lead.desiredDate,
-        usage: lead.usage,
-        source: lead.source,
-        status: lead.status,
-        notes: lead.notes,
-        createdAt: lead.createdAt.toISOString(),
-        updatedAt: lead.updatedAt.toISOString(),
-      },
-    ];
-  });
+  if (filter.from) {
+    conditions.push("created_at >= ?");
+    params.push(mytDateTime(filter.from).toISOString());
+  }
+  if (filter.to) {
+    conditions.push("created_at < ?");
+    params.push(mytDateTime(addDays(filter.to, 1)).toISOString());
+  }
+  if (before) {
+    conditions.push("(created_at < ? OR (created_at = ? AND id < ?))");
+    params.push(before.createdAt, before.createdAt, before.id);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const { results } = await db
+    .prepare(
+      `SELECT id, name, phone_e164, desired_date, usage, source, status, notes, created_at, updated_at
+       FROM leads ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .bind(...params, limit)
+    .all<LeadRow>();
+  return results.map(toView);
 }
 
 /** GET /api/admin/leads?status=&from=&to=&before=&limit= — newest first. */
@@ -142,21 +149,21 @@ export const listLeadsHandler: Handler = async (context) => {
 
   const params = searchParams(context.url);
   const filter = filterSchema.safeParse(params);
-  const page = listSchema.safeParse(params);
+  const page = pageSchema.safeParse(params);
   if (!filter.success) return validationErrorResponse(fieldErrors(filter.error, FILTER_MESSAGES));
   if (!page.success) return validationErrorResponse(fieldErrors(page.error, FILTER_MESSAGES));
 
+  const cursor = page.data.before ? CURSOR.exec(page.data.before) : null;
   const leads = await queryLeads(
     context.services.db,
     filter.data,
-    page.data.before ? new Date(page.data.before) : undefined,
+    cursor ? { createdAt: cursor[1] ?? "", id: cursor[2] ?? "" } : undefined,
     page.data.limit,
-    context.logger,
   );
   const last = leads.at(-1);
   return jsonResponse({
     leads,
-    nextBefore: leads.length === page.data.limit && last ? last.createdAt : null,
+    nextBefore: leads.length === page.data.limit && last ? `${last.createdAt}~${last.id}` : null,
   });
 };
 
@@ -178,22 +185,7 @@ export const exportLeadsHandler: Handler = async (context) => {
   const filter = filterSchema.safeParse(searchParams(context.url));
   if (!filter.success) return validationErrorResponse(fieldErrors(filter.error, FILTER_MESSAGES));
 
-  const rows: LeadView[] = [];
-  let before: Date | undefined;
-  while (rows.length < EXPORT_MAX_ROWS) {
-    const page = await queryLeads(
-      context.services.db,
-      filter.data,
-      before,
-      EXPORT_PAGE,
-      context.logger,
-    );
-    rows.push(...page);
-    const last = page.at(-1);
-    if (page.length < EXPORT_PAGE || !last) break;
-    before = new Date(last.createdAt);
-  }
-
+  const rows = await queryLeads(context.services.db, filter.data, undefined, EXPORT_MAX_ROWS);
   const csv = toCsv([
     [
       "Dihantar (MYT)",
@@ -205,21 +197,19 @@ export const exportLeadsHandler: Handler = async (context) => {
       "Status",
       "Nota",
     ],
-    ...rows
-      .slice(0, EXPORT_MAX_ROWS)
-      .map((lead) => [
-        MYT_DATE_TIME.format(new Date(lead.createdAt)),
-        lead.name,
-        formatMyMobile(lead.phoneE164),
-        lead.desiredDate ?? "",
-        LEAD_USAGE_LABELS[lead.usage],
-        LEAD_SOURCE_LABELS[lead.source],
-        LEAD_STATUS_LABELS[lead.status],
-        lead.notes,
-      ]),
+    ...rows.map((lead) => [
+      MYT_DATE_TIME.format(new Date(lead.createdAt)),
+      lead.name,
+      formatMyMobile(lead.phoneE164),
+      lead.desiredDate ?? "",
+      LEAD_USAGE_LABELS[lead.usage],
+      LEAD_SOURCE_LABELS[lead.source],
+      LEAD_STATUS_LABELS[lead.status],
+      lead.notes,
+    ]),
   ]);
 
-  context.logger.info("admin.leads_exported", { actorId: auth.session.uid, rows: rows.length });
+  context.logger.info("admin.leads_exported", { rows: rows.length });
   const filename = `leads-${mytDateString(context.services.now())}.csv`;
   return new Response(csv, {
     headers: {
@@ -230,7 +220,7 @@ export const exportLeadsHandler: Handler = async (context) => {
   });
 };
 
-/** PUT /api/admin/leads/:id — change status and/or notes. Audited in the same commit. */
+/** PUT /api/admin/leads/:id — change status and/or notes. Audited in the same transaction. */
 export const updateLeadHandler: Handler = async (context) => {
   const auth = await requireAdmin(context, { mutating: true });
   if ("response" in auth) return auth.response;
@@ -250,23 +240,43 @@ export const updateLeadHandler: Handler = async (context) => {
     );
   }
 
-  const changes: Record<string, string> = {};
-  if (parsed.data.status !== undefined) changes.status = parsed.data.status;
-  if (parsed.data.notes !== undefined) changes.notes = parsed.data.notes;
-  try {
-    await context.services.db.commit([
-      updateDoc(`leads/${leadId}`, { ...changes, updatedAt: serverTimestamp() }),
-      auditWrite({
-        actorId: auth.session.uid,
+  const changedFields = [
+    ...(parsed.data.status === undefined ? [] : ["status"]),
+    ...(parsed.data.notes === undefined ? [] : ["notes"]),
+  ];
+  const now = context.services.now();
+  const db = context.services.db;
+
+  // The audit row is guarded by the same condition as the UPDATE: an UPDATE that matches no
+  // row does not fail the batch, so without the guard a missing lead would still be audited.
+  const [update] = await db.batch([
+    db
+      .prepare(
+        `UPDATE leads SET status = COALESCE(?, status), notes = COALESCE(?, notes), updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(parsed.data.status ?? null, parsed.data.notes ?? null, now.toISOString(), leadId),
+    auditStatementIf(
+      db,
+      {
+        actor: auth.admin,
         action: "lead.update",
-        targetCollection: "leads",
+        targetTable: "leads",
         targetId: leadId,
-        changedFields: Object.keys(changes),
-      }),
-    ]);
-  } catch (error) {
-    if (isFirestoreError(error, "NOT_FOUND")) return errorResponse("NOT_FOUND");
-    throw error;
-  }
+        changedFields,
+        at: now,
+      },
+      "SELECT 1 FROM leads WHERE id = ?",
+      [leadId],
+    ),
+  ]);
+  if (!update || update.meta.changes === 0) return errorResponse("NOT_FOUND");
   return jsonResponse({ ok: true });
+};
+
+/** GET /api/admin/me — who is signed in (through Cloudflare Access). */
+export const currentAdminHandler: Handler = async (context) => {
+  const auth = await requireAdmin(context, { mutating: false });
+  if ("response" in auth) return auth.response;
+  return jsonResponse({ email: auth.admin.email });
 };

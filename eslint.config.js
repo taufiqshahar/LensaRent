@@ -24,10 +24,6 @@ export default tseslint.config(
           paths: [
             { name: "moment", message: "Use Date + Intl via @lensarent/shared time helpers." },
             { name: "dayjs", message: "Use Date + Intl via @lensarent/shared time helpers." },
-            {
-              name: "firebase-admin",
-              message: "Not compatible with Workers. Use apps/worker/src/lib/firestore.ts (REST).",
-            },
           ],
         },
       ],

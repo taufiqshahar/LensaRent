@@ -1,12 +1,9 @@
-import type { AppConfig, Env } from "./lib/env";
-import type { Firestore } from "./lib/firestore";
-import { createFirestore } from "./lib/firestore";
+import type { AdminVerifier } from "./lib/access";
+import { createAccessVerifier, createDevAdminVerifier } from "./lib/access";
 import type { Hasher } from "./lib/crypto";
 import { createHasher } from "./lib/crypto";
-import type { IdTokenVerifier } from "./lib/idToken";
-import { createEmulatorIdTokenVerifier, createIdTokenVerifier } from "./lib/idToken";
-import type { SignInResult } from "./lib/identityToolkit";
-import { signInWithPassword } from "./lib/identityToolkit";
+import type { AppConfig, Env } from "./lib/env";
+import { ConfigError } from "./lib/env";
 import type { TurnstileVerifier } from "./lib/turnstile";
 import { createTurnstileVerifier } from "./lib/turnstile";
 
@@ -16,33 +13,33 @@ import { createTurnstileVerifier } from "./lib/turnstile";
  * the rest real.
  */
 export interface Services {
-  db: Firestore;
+  db: D1Database;
   turnstile: TurnstileVerifier;
   hasher: Hasher;
-  signIn(email: string, password: string): Promise<SignInResult>;
-  idTokens: IdTokenVerifier;
-  /** Optional first line against floods; the real limits are in Firestore. */
+  admins: AdminVerifier;
+  /** Optional first line against floods; the real limits are in D1. */
   burstLimiter: RateLimit | undefined;
   now(): Date;
 }
 
 export function createServices(config: AppConfig, env: Env): Services {
-  const identity = {
-    apiKey: config.firebaseApiKey,
-    emulatorHost: config.authEmulatorHost,
-  };
+  if (!env.DB) throw new ConfigError(["DB (D1 binding) is required"]);
+  const auth = config.adminAuth;
   return {
-    db: createFirestore(config),
+    db: env.DB,
     turnstile: createTurnstileVerifier({
       secretKey: config.turnstileSecretKey,
       strict: config.deployed,
     }),
     hasher: createHasher(config.phoneHashPepper),
-    signIn: (email, password) => signInWithPassword(identity, email, password),
-    idTokens:
-      config.authEmulatorHost === undefined
-        ? createIdTokenVerifier({ projectId: config.firebaseProjectId })
-        : createEmulatorIdTokenVerifier({ projectId: config.firebaseProjectId }),
+    admins:
+      auth.mode === "dev"
+        ? createDevAdminVerifier(auth.email)
+        : createAccessVerifier({
+            teamDomain: auth.teamDomain,
+            audience: auth.audience,
+            adminEmails: auth.adminEmails,
+          }),
     burstLimiter: env.RL_BURST,
     now: () => new Date(),
   };

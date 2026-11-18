@@ -1,10 +1,10 @@
 import { DEFAULT_SETTINGS, addDays, mytDateString } from "@lensarent/shared";
 import { describe, expect, it } from "vitest";
 import { RATE_LIMIT_RULES } from "../../src/lib/rateLimit";
-import { emulatorDb } from "../helpers";
+import { testDb } from "../helpers";
 import { call, jsonInit, randomIp, randomPhone, testApp, turnstileChecks } from "./app";
 
-const db = emulatorDb();
+const db = testDb();
 const app = testApp();
 const today = mytDateString(new Date());
 
@@ -25,8 +25,27 @@ function submit(body: unknown, ip = randomIp()) {
   return call(app, "/api/leads", jsonInit("POST", body, { "cf-connecting-ip": ip }));
 }
 
-async function leadsByPhoneHash(phoneHash: string) {
-  return db.query({ collection: "leads", where: [["phoneHash", "==", phoneHash]], limit: 10 });
+interface Row {
+  id: string;
+  name: string;
+  phone_e164: string;
+  phone_hash: string;
+  desired_date: string | null;
+  usage: string;
+  source: string;
+  status: string;
+  notes: string;
+  privacy_version: string;
+  consent_at: string;
+  created_at: string;
+}
+
+async function leadsByPhone(e164: string): Promise<Row[]> {
+  const { results } = await db
+    .prepare("SELECT * FROM leads WHERE phone_e164 = ?")
+    .bind(e164)
+    .all<Row>();
+  return results;
 }
 
 describe("POST /api/leads", () => {
@@ -50,27 +69,24 @@ describe("POST /api/leads", () => {
     });
 
     const e164 = `+60${phone.replace(/\D/g, "").slice(1)}`;
-    const all = await db.query({
-      collection: "leads",
-      where: [["phoneE164", "==", e164]],
-      limit: 5,
-    });
+    const all = await leadsByPhone(e164);
     expect(all).toHaveLength(1);
-    const stored = all[0]!.data!;
+    const stored = all[0]!;
     expect(stored).toMatchObject({
       name: "Nur Aisyah",
-      phoneE164: e164,
-      desiredDate: addDays(today, 10),
+      phone_e164: e164,
+      desired_date: addDays(today, 10),
       usage: "travel",
       source: "tiktok",
       status: "new",
       notes: "",
-      consent: { privacyVersion: DEFAULT_SETTINGS.policyVersions.privacy },
+      privacy_version: DEFAULT_SETTINGS.policyVersions.privacy,
     });
-    expect(stored.phoneHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(stored.createdAt).toBeInstanceOf(Date);
+    expect(stored.phone_hash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(Number.isNaN(Date.parse(stored.created_at))).toBe(false);
+    expect(stored.consent_at).toBe(stored.created_at);
     expect(JSON.stringify(stored)).not.toContain(ip);
-    expect(all[0]!.id).toMatch(/^[A-Za-z0-9]{20}$/);
+    expect(stored.id).toMatch(/^[A-Za-z0-9]{20}$/);
   });
 
   it("accepts a lead without a date", async () => {
@@ -109,9 +125,7 @@ describe("POST /api/leads", () => {
       "TURNSTILE_FAILED",
     );
     const e164 = `+60${body.phone.slice(1)}`;
-    expect(
-      await db.query({ collection: "leads", where: [["phoneE164", "==", e164]], limit: 1 }),
-    ).toEqual([]);
+    expect(await leadsByPhone(e164)).toEqual([]);
   });
 
   it("refuses non-JSON bodies and unknown fields", async () => {
@@ -135,13 +149,9 @@ describe("POST /api/leads", () => {
     const last = await submit(submission({ phone }));
     expect(Number(last.headers.get("Retry-After"))).toBeGreaterThan(0);
 
-    const stored = await db.query({
-      collection: "leads",
-      where: [["phoneE164", "==", `+60${phone.slice(1)}`]],
-      limit: 10,
-    });
+    const stored = await leadsByPhone(`+60${phone.slice(1)}`);
     expect(stored).toHaveLength(3);
-    expect(await leadsByPhoneHash(stored[0]!.data!.phoneHash as string)).toHaveLength(3);
+    expect(new Set(stored.map((row) => row.phone_hash)).size).toBe(1);
   });
 
   it(`limits one IP to ${RATE_LIMIT_RULES.leadPerIp.limit.toString()} leads an hour`, async () => {

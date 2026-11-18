@@ -53,19 +53,3 @@ export const leadUpdateSchema = z
     message: "nothing to update",
   });
 export type LeadUpdate = z.infer<typeof leadUpdateSchema>;
-
-/** A lead as stored in `leads/{leadId}`. */
-export const leadDocumentSchema = z.object({
-  name: z.string(),
-  phoneE164: z.string(),
-  phoneHash: z.string(),
-  desiredDate: z.string().nullable(),
-  usage: z.enum(LEAD_USAGES),
-  source: z.enum(LEAD_SOURCES),
-  status: z.enum(LEAD_STATUSES),
-  notes: z.string(),
-  consent: z.object({ privacyVersion: z.string(), at: z.date() }),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
-export type LeadDocument = z.infer<typeof leadDocumentSchema>;

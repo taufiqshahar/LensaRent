@@ -8,7 +8,7 @@ import { TEST_ENV } from "../helpers";
 /** Turnstile stand-in: the token "pass" is human, anything else is not. */
 export const turnstileChecks: TurnstileCheck[] = [];
 
-export function testApp(overrides: Partial<Services> = {}) {
+export function testApp(overrides: Partial<Services> = {}): ReturnType<typeof createApp> {
   return createApp((config, env) => ({
     ...createServices(config, env),
     turnstile: {

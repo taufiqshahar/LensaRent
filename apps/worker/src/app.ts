@@ -4,8 +4,12 @@ import { errorResponse } from "./lib/http";
 import { createLogger } from "./lib/logger";
 import type { Route } from "./router";
 import { createRouter, healthHandler } from "./router";
-import { exportLeadsHandler, listLeadsHandler, updateLeadHandler } from "./routes/adminLeads";
-import { currentSessionHandler, loginHandler, logoutHandler } from "./routes/adminSession";
+import {
+  currentAdminHandler,
+  exportLeadsHandler,
+  listLeadsHandler,
+  updateLeadHandler,
+} from "./routes/adminLeads";
 import { createLeadHandler } from "./routes/leads";
 import type { ServicesFactory } from "./services";
 import { createServices } from "./services";
@@ -13,9 +17,7 @@ import { createServices } from "./services";
 export const routes: readonly Route[] = [
   { method: "GET", path: "/api/health", handler: healthHandler },
   { method: "POST", path: "/api/leads", handler: createLeadHandler },
-  { method: "POST", path: "/api/admin/session", handler: loginHandler },
-  { method: "GET", path: "/api/admin/session", handler: currentSessionHandler },
-  { method: "DELETE", path: "/api/admin/session", handler: logoutHandler },
+  { method: "GET", path: "/api/admin/me", handler: currentAdminHandler },
   { method: "GET", path: "/api/admin/leads", handler: listLeadsHandler },
   { method: "GET", path: "/api/admin/leads/export", handler: exportLeadsHandler },
   { method: "PUT", path: "/api/admin/leads/:id", handler: updateLeadHandler },

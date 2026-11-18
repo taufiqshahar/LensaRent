@@ -5,7 +5,7 @@ import { ACTOR_TYPES, BOOKING_STATUSES } from "./stateMachine";
 import { isDateString, isTimeOfDay } from "./time";
 
 /**
- * zod schemas shared by the web app and the Worker. Firestore validates nothing, so every
+ * zod schemas shared by the web app and the Worker. the database cannot check structure, so every
  * value is parsed with these in the Worker before it is written.
  */
 

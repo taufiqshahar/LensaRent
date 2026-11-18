@@ -58,58 +58,31 @@ function render(...nodes: Node[]): void {
   root?.replaceChildren(...nodes);
 }
 
-// ── Sign in ─────────────────────────────────────────────────────────────────────────────
+// ── Not signed in ──────────────────────────────────────────────────────────────────────
+// Sign-in is done by Cloudflare Access before this page even loads. Reaching this view
+// means Access let the page through but the API refused (session expired, or the email
+// is not on the Worker's admin list). Reloading sends the admin back through Access.
 
-function showLogin(notice = ""): void {
-  const status = el("p", { class: "form-status", role: "alert" }, notice);
-  status.dataset.kind = notice ? "error" : "";
-  const email = el("input", {
-    id: "email",
-    name: "email",
-    type: "email",
-    autocomplete: "username",
-    required: true,
-  });
-  const password = el("input", {
-    id: "password",
-    name: "password",
-    type: "password",
-    autocomplete: "current-password",
-    required: true,
-  });
-  const button = el("button", { class: "button button--block", type: "submit" }, "Log masuk");
+const ACCESS_LOGOUT = "/cdn-cgi/access/logout";
 
-  const form = el(
-    "form",
-    { class: "card admin-login" },
-    el("h1", {}, `${brand} · Admin`),
-    el("div", { class: "field" }, el("label", { for: "email" }, "Emel"), email),
-    el("div", { class: "field" }, el("label", { for: "password" }, "Kata laluan"), password),
-    button,
-    status,
+function showSignedOut(notice: string): void {
+  const reload = el(
+    "button",
+    { class: "button button--block", type: "button" },
+    "Log masuk semula",
   );
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    button.disabled = true;
-    status.textContent = "";
-    void api<Session>("/api/admin/session", {
-      method: "POST",
-      body: JSON.stringify({ email: email.value, password: password.value }),
-    }).then((result) => {
-      button.disabled = false;
-      password.value = "";
-      if (result.ok) {
-        showLeads(result.value);
-      } else {
-        status.textContent = result.error.message;
-        status.dataset.kind = "error";
-      }
-    });
+  reload.addEventListener("click", () => {
+    window.location.reload();
   });
-
-  render(form);
-  email.focus();
+  render(
+    el(
+      "div",
+      { class: "card admin-login", role: "alert" },
+      el("h1", {}, `${brand} · Admin`),
+      el("p", {}, notice),
+      reload,
+    ),
+  );
 }
 
 // ── Leads ───────────────────────────────────────────────────────────────────────────────
@@ -254,7 +227,7 @@ function showLeads(session: Session): void {
   let nextBefore: string | null = null;
   let shown = 0;
   const expired = () => {
-    showLogin("Sesi anda telah tamat. Sila log masuk semula.");
+    showSignedOut("Sesi anda telah tamat. Sila log masuk semula.");
   };
 
   const load = (append: boolean) => {
@@ -307,16 +280,12 @@ function showLeads(session: Session): void {
     load(true);
   });
 
+  // Ends the Cloudflare Access session; the next visit asks for a new one-time PIN.
   const logout = el(
-    "button",
-    { class: "button button--small button--ghost", type: "button" },
+    "a",
+    { class: "button button--small button--ghost", href: ACCESS_LOGOUT },
     "Log keluar",
   );
-  logout.addEventListener("click", () => {
-    void api("/api/admin/session", { method: "DELETE" }).then(() => {
-      showLogin();
-    });
-  });
 
   render(
     el(
@@ -331,7 +300,9 @@ function showLeads(session: Session): void {
   load(false);
 }
 
-void api<Session>("/api/admin/session").then((result) => {
+void api<Session>("/api/admin/me").then((result) => {
   if (result.ok) showLeads(result.value);
-  else showLogin();
+  else if (result.status === 401) {
+    showSignedOut("Akses ditolak. Log masuk dengan emel admin yang didaftarkan.");
+  } else showSignedOut(result.error.message);
 });

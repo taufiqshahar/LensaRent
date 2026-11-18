@@ -2,12 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createHasher, randomToken, sha256 } from "../../src/lib/crypto";
 import { csvField, toCsv } from "../../src/lib/csv";
 import { MAX_JSON_BYTES, clientIp, isSameOrigin, readJson } from "../../src/lib/http";
-import {
-  SESSION_COOKIE,
-  clearedSessionCookie,
-  readSessionToken,
-  sessionCookie,
-} from "../../src/lib/sessions";
 import { TURNSTILE_VERIFY_URL, createTurnstileVerifier } from "../../src/lib/turnstile";
 
 describe("hashing", () => {
@@ -77,36 +71,13 @@ describe("request helpers", () => {
   });
 
   it("accepts only requests from our own origin", () => {
-    const url = new URL("https://lensarent.test/api/admin/session");
+    const url = new URL("https://lensarent.test/api/admin/leads");
     const withOrigin = (origin?: string) =>
       new Request(url, { method: "POST", headers: origin ? { origin } : {} });
     expect(isSameOrigin(withOrigin("https://lensarent.test"), url)).toBe(true);
     expect(isSameOrigin(withOrigin("https://evil.test"), url)).toBe(false);
     expect(isSameOrigin(withOrigin("http://lensarent.test"), url)).toBe(false);
     expect(isSameOrigin(withOrigin(), url)).toBe(false);
-  });
-});
-
-describe("session cookies", () => {
-  it("are HttpOnly, Secure, SameSite=Strict and host-only", () => {
-    const cookie = sessionCookie("abc");
-    expect(cookie).toMatch(/^__Host-lensarent_admin=abc; /);
-    for (const attribute of ["Path=/", "HttpOnly", "Secure", "SameSite=Strict", "Max-Age=28800"]) {
-      expect(cookie).toContain(attribute);
-    }
-    expect(cookie).not.toContain("Domain=");
-    expect(clearedSessionCookie()).toContain("Max-Age=0");
-  });
-
-  it("are read back from the Cookie header", () => {
-    const request = (cookie?: string) =>
-      new Request("https://x.test", { headers: cookie ? { cookie } : {} });
-    expect(readSessionToken(request(`theme=dark; ${SESSION_COOKIE}=tok123; other=1`))).toBe(
-      "tok123",
-    );
-    expect(readSessionToken(request("theme=dark"))).toBeUndefined();
-    expect(readSessionToken(request("broken; =x"))).toBeUndefined();
-    expect(readSessionToken(request())).toBeUndefined();
   });
 });
 

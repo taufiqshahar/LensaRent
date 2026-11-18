@@ -3,10 +3,14 @@
 # One Worker serves the API (/api/*) and the static site built from apps/web.
 # Same origin for both, so there is no CORS surface at all.
 #
+# Everything runs on Cloudflare: D1 holds the data, Cloudflare Access guards /admin and
+# /api/admin, Turnstile guards the public form.
+#
 # ALWAYS deploy with an explicit environment:
 #   wrangler deploy --env staging
 #   wrangler deploy --env production
 # The top-level config below is for local development only (`wrangler dev`).
+# Bindings below (D1, rate limits, vars) are NOT inherited: each environment declares its own.
 
 name = "lensarent"
 main = "src/index.ts"
@@ -26,11 +30,18 @@ enabled = true
 
 [vars]
 ENVIRONMENT = "development"
-# "demo-" projects only ever talk to the Firebase Emulator Suite.
-FIREBASE_PROJECT_ID = "demo-lensarent"
+# No Cloudflare Access in front of `wrangler dev`: act as this admin locally.
+# Refused by the Worker in staging and production.
+ACCESS_DEV_EMAIL = "admin@lensarent.local"
 
-# Burst guard per IP (ADR-007). Business limits live in Firestore (src/lib/rateLimit.ts).
-# Rate limit bindings are NOT inherited by environments: each env declares its own.
+# Local D1 database (`pnpm --filter @lensarent/worker db:migrate:local`).
+[[d1_databases]]
+binding = "DB"
+database_name = "lensarent-local"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Burst guard per IP (ADR-007). Business limits live in D1 (src/lib/rateLimit.ts).
 [[ratelimits]]
 name = "RL_BURST"
 namespace_id = "1000"
@@ -39,6 +50,15 @@ simple = { limit = 20, period = 60 }
 # ── Staging ─────────────────────────────────────────────────────────────────────────────
 [env.staging]
 name = "lensarent-staging"
+# TODO(owner): route staging to a hostname on the real domain (e.g. staging.<domain>) and
+# put it behind Cloudflare Access; then set workers_dev = false.
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "lensarent-staging"
+# TODO(owner): id printed by `wrangler d1 create lensarent-staging --location apac`.
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
 
 [[env.staging.ratelimits]]
 name = "RL_BURST"
@@ -47,14 +67,24 @@ simple = { limit = 20, period = 60 }
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
-# TODO(Fasa 1): replace with the real staging Firebase project id.
-FIREBASE_PROJECT_ID = "lensarent-staging"
+# TODO(owner): Cloudflare Zero Trust team domain, the Access application's AUD tag, and
+# the admin email(s). None of these are secret.
+ACCESS_TEAM_DOMAIN = "lensarent.cloudflareaccess.com"
+ACCESS_AUD = "0000000000000000000000000000000000000000000000000000000000000000"
+ADMIN_EMAILS = "admin@example.com"
 
 # ── Production ──────────────────────────────────────────────────────────────────────────
 [env.production]
 name = "lensarent-production"
 workers_dev = false
-# TODO(Fasa 1): add the custom domain route once {{DOMAIN}} is confirmed.
+# TODO(owner): add the custom domain route once {{DOMAIN}} is confirmed.
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "lensarent-production"
+# TODO(owner): id printed by `wrangler d1 create lensarent-production --location apac`.
+database_id = "00000000-0000-0000-0000-000000000002"
+migrations_dir = "migrations"
 
 [[env.production.ratelimits]]
 name = "RL_BURST"
@@ -63,12 +93,11 @@ simple = { limit = 20, period = 60 }
 
 [env.production.vars]
 ENVIRONMENT = "production"
-# TODO(Fasa 1): replace with the real production Firebase project id.
-FIREBASE_PROJECT_ID = "lensarent-production"
+ACCESS_TEAM_DOMAIN = "lensarent.cloudflareaccess.com"
+ACCESS_AUD = "0000000000000000000000000000000000000000000000000000000000000000"
+ADMIN_EMAILS = "admin@example.com"
 
 # Secrets are never listed here. Set each one per environment:
-#   wrangler secret put FIREBASE_SERVICE_ACCOUNT --env staging
-#   wrangler secret put FIREBASE_API_KEY --env staging
 #   wrangler secret put TURNSTILE_SECRET_KEY --env staging
 #   wrangler secret put PHONE_HASH_PEPPER --env staging
 # See .dev.vars.example and docs/DEPLOYMENT_AND_BACKUP.md.

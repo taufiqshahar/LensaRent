@@ -1,7 +1,7 @@
 /**
  * Booking state machine (master prompt §7). This table is the single definition of which
  * status changes exist and who may make them. The UI uses it to show valid actions; the
- * Worker uses it to reject everything else before writing. Firestore enforces nothing.
+ * Worker uses it to reject everything else before writing. The database only backs it up.
  */
 export const BOOKING_STATUSES = [
   "pending_payment",

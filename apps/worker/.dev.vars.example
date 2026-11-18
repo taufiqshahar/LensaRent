@@ -1,18 +1,8 @@
 # Local development secrets for `wrangler dev`. Copy to `.dev.vars` (git-ignored).
 # Never commit real values. Deployed environments use `wrangler secret put <NAME> --env <env>`.
-
-# Point the Worker at the local Firebase Emulator Suite (pnpm dev:emulators).
-# Only allowed in development and test; the Worker refuses to start with them in staging/production.
-FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
-FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:9099"
-
-# Full service-account JSON. Not needed while FIRESTORE_EMULATOR_HOST is set.
-# In this file the JSON must be wrapped in SINGLE quotes so its \n escapes survive:
-# FIREBASE_SERVICE_ACCOUNT='{"type":"service_account", ...}'
-FIREBASE_SERVICE_ACCOUNT=
-
-# Firebase Web API key. The Auth emulator accepts any value.
-FIREBASE_API_KEY="demo-api-key"
+#
+# Local data lives in a local D1 database: `pnpm --filter @lensarent/worker db:migrate:local`.
+# The local admin is ACCESS_DEV_EMAIL in wrangler.toml (no Cloudflare Access locally).
 
 # Cloudflare's documented Turnstile TEST secret: every token passes. Pair it with the test
 # site key 1x00000000000000000000AA in apps/web/.env.development.

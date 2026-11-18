@@ -25,7 +25,7 @@ export async function sha256(value: string): Promise<string> {
  * number hashed for two purposes gives two unrelated values.
  */
 export interface Hasher {
-  hash(purpose: "phone" | "ip" | "email", value: string): Promise<string>;
+  hash(purpose: "phone" | "ip", value: string): Promise<string>;
 }
 
 export function createHasher(pepper: string): Hasher {

@@ -79,7 +79,7 @@ describe("failures", () => {
 
     const response = await call("/api/health", undefined, {
       ENVIRONMENT: "production",
-      FIREBASE_PROJECT_ID: "lensarent-production",
+      TURNSTILE_SECRET_KEY: "x",
     });
 
     expect(response.status).toBe(500);
@@ -87,7 +87,7 @@ describe("failures", () => {
     expect(JSON.parse(text)).toEqual({
       error: { code: "INTERNAL_ERROR", message: "Ralat dalaman. Sila cuba sebentar lagi." },
     });
-    expect(text).not.toContain("FIREBASE");
+    expect(text).not.toContain("ACCESS_");
     expect(text).not.toContain("stack");
 
     expect(logged).toHaveBeenCalledOnce();
@@ -103,7 +103,7 @@ describe("failures", () => {
 
 describe("createRouter", () => {
   const config: AppConfig = testConfig();
-  const services = createServices(config, {});
+  const services = createServices(config, TEST_ENV);
   const logger = createLogger({ environment: "test", sink: () => undefined });
   const router = createRouter([
     {

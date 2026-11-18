@@ -6,38 +6,35 @@ export type Environment = (typeof ENVIRONMENTS)[number];
 /** Bindings exactly as Cloudflare hands them over. Untrusted until `loadConfig` parses them. */
 export interface Env {
   ENVIRONMENT?: string;
-  FIREBASE_PROJECT_ID?: string;
-  /** Secret: the full service-account JSON. Never logged, never sent to the browser. */
-  FIREBASE_SERVICE_ACCOUNT?: string;
-  /**
-   * Secret by choice: the Firebase Web API key. Only the Worker calls the sign-in API, so the
-   * key never reaches a browser and nobody else can use it to create accounts.
-   */
-  FIREBASE_API_KEY?: string;
   /** Secret: Cloudflare Turnstile secret key. */
   TURNSTILE_SECRET_KEY?: string;
   /** Secret: pepper for the HMAC of phone numbers and IP addresses. */
   PHONE_HASH_PEPPER?: string;
-  /** Local development and tests only. */
-  FIRESTORE_EMULATOR_HOST?: string;
-  /** Local development and tests only. */
-  FIREBASE_AUTH_EMULATOR_HOST?: string;
+  /** Cloudflare Access team domain, e.g. `lensarent.cloudflareaccess.com`. */
+  ACCESS_TEAM_DOMAIN?: string;
+  /** The AUD tag of the Access application that protects /admin and /api/admin. */
+  ACCESS_AUD?: string;
+  /** Comma-separated admin emails, checked again in the Worker behind the Access policy. */
+  ADMIN_EMAILS?: string;
+  /** Local development and tests only: act as this admin without Access. */
+  ACCESS_DEV_EMAIL?: string;
+  DB?: D1Database;
   ASSETS?: Fetcher;
   /** Workers Rate Limiting binding: a cheap first line against bursts from one IP. */
   RL_BURST?: RateLimit;
 }
 
+export type AdminAuthConfig =
+  | { mode: "access"; teamDomain: string; audience: string; adminEmails: ReadonlySet<string> }
+  | { mode: "dev"; email: string };
+
 export interface AppConfig {
   environment: Environment;
-  /** Staging and production: strict checks apply (Turnstile hostname/action, no emulators). */
+  /** Staging and production: strict checks apply (Turnstile hostname/action, no dev login). */
   deployed: boolean;
-  firebaseProjectId: string;
-  serviceAccountJson: string | undefined;
-  firebaseApiKey: string;
   turnstileSecretKey: string;
   phoneHashPepper: string;
-  firestoreEmulatorHost: string | undefined;
-  authEmulatorHost: string | undefined;
+  adminAuth: AdminAuthConfig;
 }
 
 export class ConfigError extends Error {
@@ -52,45 +49,51 @@ const optionalText = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().optional(),
 );
-const requiredText = z.string().min(1, "is required");
 
-// Loopback only: the emulators accept any caller as the owner, so they must never be remote.
-const emulatorHost = optionalText.refine(
-  (value) => value === undefined || /^(127\.0\.0\.1|localhost):\d{2,5}$/.test(value),
-  "must be a loopback host:port",
-);
+const emailList = optionalText.transform((value, context) => {
+  if (value === undefined) return undefined;
+  const emails = value
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email !== "");
+  if (emails.length === 0 || !emails.every((email) => z.email().safeParse(email).success)) {
+    context.addIssue({ code: "custom", message: "must be a comma-separated list of emails" });
+    return z.NEVER;
+  }
+  return new Set(emails);
+});
 
 const configSchema = z
   .object({
     ENVIRONMENT: z.enum(ENVIRONMENTS),
-    FIREBASE_PROJECT_ID: z.string().regex(/^[a-z][a-z0-9-]{4,29}$/, "is not a Firebase project id"),
-    FIREBASE_SERVICE_ACCOUNT: optionalText,
-    FIREBASE_API_KEY: requiredText,
-    TURNSTILE_SECRET_KEY: requiredText,
+    TURNSTILE_SECRET_KEY: z.string().min(1, "is required"),
     PHONE_HASH_PEPPER: z.string().min(32, "must be at least 32 characters"),
-    FIRESTORE_EMULATOR_HOST: emulatorHost,
-    FIREBASE_AUTH_EMULATOR_HOST: emulatorHost,
+    ACCESS_TEAM_DOMAIN: optionalText.refine(
+      (value) => value === undefined || /^[a-z0-9-]{1,63}\.cloudflareaccess\.com$/.test(value),
+      "must look like <team>.cloudflareaccess.com",
+    ),
+    ACCESS_AUD: optionalText.refine(
+      (value) => value === undefined || /^[a-f0-9]{32,128}$/.test(value),
+      "must be the Access application's AUD tag",
+    ),
+    ADMIN_EMAILS: emailList,
+    ACCESS_DEV_EMAIL: optionalText.refine(
+      (value) => value === undefined || z.email().safeParse(value).success,
+      "must be an email",
+    ),
   })
   .superRefine((value, context) => {
     const deployed = value.ENVIRONMENT === "staging" || value.ENVIRONMENT === "production";
-    for (const key of ["FIRESTORE_EMULATOR_HOST", "FIREBASE_AUTH_EMULATOR_HOST"] as const) {
-      if (deployed && value[key] !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: "must not be set in a deployed environment",
-        });
-      }
+    const issue = (path: string, message: string) => {
+      context.addIssue({ code: "custom", path: [path], message });
+    };
+    if (deployed && value.ACCESS_DEV_EMAIL !== undefined) {
+      issue("ACCESS_DEV_EMAIL", "must not be set in a deployed environment");
     }
-    if (
-      value.FIRESTORE_EMULATOR_HOST === undefined &&
-      value.FIREBASE_SERVICE_ACCOUNT === undefined
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["FIREBASE_SERVICE_ACCOUNT"],
-        message: "is required when no emulator host is set",
-      });
+    if (deployed || value.ACCESS_DEV_EMAIL === undefined) {
+      if (value.ACCESS_TEAM_DOMAIN === undefined) issue("ACCESS_TEAM_DOMAIN", "is required");
+      if (value.ACCESS_AUD === undefined) issue("ACCESS_AUD", "is required");
+      if (value.ADMIN_EMAILS === undefined) issue("ADMIN_EMAILS", "is required");
     }
   });
 
@@ -101,35 +104,42 @@ const configSchema = z
 export function loadConfig(env: Env): AppConfig {
   const parsed = configSchema.safeParse({
     ENVIRONMENT: env.ENVIRONMENT,
-    FIREBASE_PROJECT_ID: env.FIREBASE_PROJECT_ID,
-    FIREBASE_SERVICE_ACCOUNT: env.FIREBASE_SERVICE_ACCOUNT,
-    FIREBASE_API_KEY: env.FIREBASE_API_KEY,
     TURNSTILE_SECRET_KEY: env.TURNSTILE_SECRET_KEY,
     PHONE_HASH_PEPPER: env.PHONE_HASH_PEPPER,
-    FIRESTORE_EMULATOR_HOST: env.FIRESTORE_EMULATOR_HOST,
-    FIREBASE_AUTH_EMULATOR_HOST: env.FIREBASE_AUTH_EMULATOR_HOST,
+    ACCESS_TEAM_DOMAIN: env.ACCESS_TEAM_DOMAIN,
+    ACCESS_AUD: env.ACCESS_AUD,
+    ADMIN_EMAILS: env.ADMIN_EMAILS,
+    ACCESS_DEV_EMAIL: env.ACCESS_DEV_EMAIL,
   });
-  if (!parsed.success) {
-    throw new ConfigError(
-      parsed.error.issues.map((issue) => {
+  const problems = parsed.success
+    ? []
+    : parsed.error.issues.map((issue) => {
         const binding = issue.path.join(".");
-        // zod's own messages for a missing value mention the received type, never the value.
+        // zod's message for a missing value mentions the received type, never the value.
         return issue.code === "invalid_type"
           ? `${binding} is required`
           : `${binding} ${issue.message}`;
-      }),
-    );
-  }
+      });
+  if (!env.DB) problems.push("DB (D1 binding) is required");
+  if (!parsed.success || problems.length > 0) throw new ConfigError(problems);
+
   const data = parsed.data;
+  const deployed = data.ENVIRONMENT === "staging" || data.ENVIRONMENT === "production";
+  const adminAuth: AdminAuthConfig =
+    !deployed && data.ACCESS_DEV_EMAIL !== undefined
+      ? { mode: "dev", email: data.ACCESS_DEV_EMAIL.toLowerCase() }
+      : {
+          mode: "access",
+          // Checked by superRefine above.
+          teamDomain: data.ACCESS_TEAM_DOMAIN ?? "",
+          audience: data.ACCESS_AUD ?? "",
+          adminEmails: data.ADMIN_EMAILS ?? new Set<string>(),
+        };
   return {
     environment: data.ENVIRONMENT,
-    deployed: data.ENVIRONMENT === "staging" || data.ENVIRONMENT === "production",
-    firebaseProjectId: data.FIREBASE_PROJECT_ID,
-    serviceAccountJson: data.FIREBASE_SERVICE_ACCOUNT,
-    firebaseApiKey: data.FIREBASE_API_KEY,
+    deployed,
     turnstileSecretKey: data.TURNSTILE_SECRET_KEY,
     phoneHashPepper: data.PHONE_HASH_PEPPER,
-    firestoreEmulatorHost: data.FIRESTORE_EMULATOR_HOST,
-    authEmulatorHost: data.FIREBASE_AUTH_EMULATOR_HOST,
+    adminAuth,
   };
 }

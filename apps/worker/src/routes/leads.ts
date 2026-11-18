@@ -1,6 +1,6 @@
 import type { LeadSubmission } from "@lensarent/shared";
 import { DEFAULT_SETTINGS, addDays, leadSubmissionSchema, mytDateString } from "@lensarent/shared";
-import { createDoc, newDocumentId, serverTimestamp } from "../lib/firestore";
+import { newId } from "../lib/db";
 import {
   clientIp,
   errorResponse,
@@ -30,7 +30,7 @@ export const LEAD_FIELD_MESSAGES: Readonly<Record<keyof LeadSubmission, string>>
  * POST /api/leads — the public interest form.
  *
  * Order matters for cost and abuse: the free burst limiter first, then input validation,
- * then Turnstile (so bots without a valid token never cost a Firestore write), then the
+ * then Turnstile (so bots without a valid token never cost a database write), then the
  * per-IP and per-phone counters, then the write.
  */
 export const createLeadHandler: Handler = async ({ request, url, services, logger }) => {
@@ -82,22 +82,28 @@ export const createLeadHandler: Handler = async ({ request, url, services, logge
     }
   }
 
-  const leadId = newDocumentId();
-  await services.db.commit([
-    createDoc(`leads/${leadId}`, {
-      name: lead.name,
-      phoneE164: lead.phone,
+  const leadId = newId();
+  const at = now.toISOString();
+  await services.db
+    .prepare(
+      `INSERT INTO leads (id, name, phone_e164, phone_hash, desired_date, usage, source,
+         status, notes, privacy_version, consent_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'new', '', ?, ?, ?, ?)`,
+    )
+    .bind(
+      leadId,
+      lead.name,
+      lead.phone,
       phoneHash,
-      desiredDate: lead.desiredDate,
-      usage: lead.usage,
-      source: lead.source,
-      status: "new",
-      notes: "",
-      consent: { privacyVersion: DEFAULT_SETTINGS.policyVersions.privacy, at: now },
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }),
-  ]);
+      lead.desiredDate,
+      lead.usage,
+      lead.source,
+      DEFAULT_SETTINGS.policyVersions.privacy,
+      at,
+      at,
+      at,
+    )
+    .run();
 
   logger.info("lead.created", { leadId, usage: lead.usage, source: lead.source });
   return jsonResponse({ ok: true }, 201);

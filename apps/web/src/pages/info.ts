@@ -133,9 +133,9 @@ export const privacyPage: Page = {
           </p>
           <h2>Pendedahan dan lokasi data</h2>
           <p>
-            Data disimpan menggunakan Google Firebase (pusat data di Singapura) dan diproses melalui
-            Cloudflare. Pengesahan keselamatan borang menggunakan Cloudflare Turnstile. Penyedia ini
-            memproses data bagi pihak kami sahaja.
+            Data disimpan dan diproses menggunakan Cloudflare (pangkalan data Cloudflare D1, di
+            pusat data rantau Asia Pasifik). Pengesahan keselamatan borang menggunakan Cloudflare
+            Turnstile. Penyedia ini memproses data bagi pihak kami sahaja.
           </p>
           <h2>Tempoh simpanan</h2>
           <p>
