@@ -100,4 +100,7 @@ ADMIN_EMAILS = "admin@example.com"
 # Secrets are never listed here. Set each one per environment:
 #   wrangler secret put TURNSTILE_SECRET_KEY --env staging
 #   wrangler secret put PHONE_HASH_PEPPER --env staging
+#   wrangler secret put CHIP_SECRET_KEY --env staging   (TEST key on staging, LIVE on production)
+# CHIP_BRAND_ID is not secret but is set the same way, next to the key it belongs to:
+#   wrangler secret put CHIP_BRAND_ID --env staging
 # See .dev.vars.example and docs/DEPLOYMENT_AND_BACKUP.md.

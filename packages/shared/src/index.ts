@@ -1,3 +1,4 @@
+export * from "./booking";
 export * from "./cancellation";
 export * from "./defaultSettings";
 export * from "./duration";
@@ -10,5 +11,6 @@ export * from "./overlap";
 export * from "./phone";
 export * from "./pricing";
 export * from "./schemas";
+export * from "./slots";
 export * from "./stateMachine";
 export * from "./time";

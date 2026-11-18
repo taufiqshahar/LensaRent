@@ -170,3 +170,37 @@ export async function releaseDayLocks(
   const released = new Set((deleted?.results ?? []).map((row) => row.date));
   return dates.filter((date) => released.has(date));
 }
+
+/** SQL guard from `prepareTransition`: true only if that status change was applied. */
+interface StatementGuard {
+  sql: string;
+  params: readonly string[];
+}
+
+/**
+ * Deletes every lock a booking holds, only if `guard` holds. For status changes that end
+ * a booking's claim on its days (cancelled, refund pending), in the same batch.
+ */
+export function releaseBookingLocksStatement(
+  db: D1Database,
+  bookingId: string,
+  guard: StatementGuard,
+): D1PreparedStatement {
+  return db
+    .prepare(`DELETE FROM availability_locks WHERE booking_id = ? AND ${guard.sql}`)
+    .bind(bookingId, ...guard.params);
+}
+
+/** Turns a paid hold's locks into booking locks (no expiry), only if `guard` holds. */
+export function confirmBookingLocksStatement(
+  db: D1Database,
+  bookingId: string,
+  guard: StatementGuard,
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE availability_locks SET kind = 'booking', hold_expires_at = NULL
+       WHERE booking_id = ? AND kind = 'hold' AND ${guard.sql}`,
+    )
+    .bind(bookingId, ...guard.params);
+}

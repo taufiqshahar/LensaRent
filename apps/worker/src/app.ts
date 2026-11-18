@@ -10,13 +10,27 @@ import {
   listLeadsHandler,
   updateLeadHandler,
 } from "./routes/adminLeads";
+import {
+  availabilityHandler,
+  bookingConfigHandler,
+  holdHandler,
+  lookupHandler,
+  quoteHandler,
+} from "./routes/bookings";
 import { createLeadHandler } from "./routes/leads";
+import { chipWebhookHandler } from "./routes/webhooks";
 import type { ServicesFactory } from "./services";
 import { createServices } from "./services";
 
 export const routes: readonly Route[] = [
   { method: "GET", path: "/api/health", handler: healthHandler },
   { method: "POST", path: "/api/leads", handler: createLeadHandler },
+  { method: "GET", path: "/api/config", handler: bookingConfigHandler },
+  { method: "GET", path: "/api/availability", handler: availabilityHandler },
+  { method: "POST", path: "/api/quote", handler: quoteHandler },
+  { method: "POST", path: "/api/bookings/hold", handler: holdHandler },
+  { method: "GET", path: "/api/bookings/lookup", handler: lookupHandler },
+  { method: "POST", path: "/api/webhooks/chip", handler: chipWebhookHandler },
   { method: "GET", path: "/api/admin/me", handler: currentAdminHandler },
   { method: "GET", path: "/api/admin/leads", handler: listLeadsHandler },
   { method: "GET", path: "/api/admin/leads/export", handler: exportLeadsHandler },

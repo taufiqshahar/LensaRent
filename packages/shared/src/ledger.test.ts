@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "./errors";
-import { DEPOSIT_ENTRY_TYPES, LEDGER_ENTRY_TYPES, depositBalanceSen } from "./ledger";
+import {
+  DEPOSIT_ENTRY_TYPES,
+  LEDGER_ENTRY_TYPES,
+  LEDGER_SIGN,
+  depositBalanceSen,
+  hasLedgerSign,
+} from "./ledger";
 
 describe("ledger entry types", () => {
   it("match the specification", () => {
@@ -81,5 +87,26 @@ describe("depositBalanceSen", () => {
     expect(() => depositBalanceSen([{ type: "DEPOSIT_IN", amountSen: 100.5 }])).toThrow(
       DomainError,
     );
+  });
+});
+
+describe("ledger signs", () => {
+  it("cover every type", () => {
+    expect(Object.keys(LEDGER_SIGN).sort()).toEqual([...LEDGER_ENTRY_TYPES].sort());
+  });
+
+  it("accept the right sign and reject the wrong one, zero and floats", () => {
+    expect(hasLedgerSign("DEPOSIT_IN", 10000)).toBe(true);
+    expect(hasLedgerSign("DEPOSIT_IN", -10000)).toBe(false);
+    expect(hasLedgerSign("DEPOSIT_REFUND", -10000)).toBe(true);
+    expect(hasLedgerSign("DEPOSIT_REFUND", 10000)).toBe(false);
+    expect(hasLedgerSign("RENTAL", 0)).toBe(false);
+    expect(hasLedgerSign("RENTAL", 1.5)).toBe(false);
+  });
+
+  it("flip for reversals", () => {
+    expect(hasLedgerSign("DEPOSIT_REFUND", 10000, true)).toBe(true);
+    expect(hasLedgerSign("RENTAL", -6900, true)).toBe(true);
+    expect(hasLedgerSign("RENTAL", 6900, true)).toBe(false);
   });
 });

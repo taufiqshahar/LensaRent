@@ -11,3 +11,9 @@ TURNSTILE_SECRET_KEY="1x0000000000000000000000000000000AA"
 # Any string of 32+ characters locally. Generate a real one per environment with:
 #   openssl rand -base64 48
 PHONE_HASH_PEPPER="local-development-pepper-not-secret-000"
+
+# CHIP Collect (payments). Leave unset locally and online booking stays closed (the API
+# answers BOOKING_CLOSED). To try it, use a CHIP TEST key and your test brand id; CHIP's
+# callbacks cannot reach localhost, so payments then confirm via reconciliation only.
+# CHIP_SECRET_KEY=""
+# CHIP_BRAND_ID=""

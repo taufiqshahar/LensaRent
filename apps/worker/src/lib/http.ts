@@ -31,6 +31,28 @@ export const API_ERRORS = {
   PAYLOAD_TOO_LARGE: { status: 413, message: "Permintaan terlalu besar." },
   UNSUPPORTED_MEDIA_TYPE: { status: 415, message: "Jenis kandungan tidak disokong." },
   RATE_LIMITED: { status: 429, message: "Terlalu banyak cubaan. Sila cuba sebentar lagi." },
+  SLOT_UNAVAILABLE: {
+    status: 409,
+    message: "Tarikh ini sudah ditempah. Sila pilih tarikh atau slot lain.",
+  },
+  TOO_MANY_HOLDS: {
+    status: 409,
+    message:
+      "Anda ada tempahan yang belum dibayar. Sila selesaikan pembayaran itu atau tunggu ia tamat.",
+  },
+  BOOKING_NOT_ALLOWED: {
+    status: 403,
+    message: "Tempahan tidak dapat diproses. Sila hubungi kami melalui WhatsApp.",
+  },
+  BOOKING_CLOSED: {
+    status: 503,
+    message: "Tempahan dalam talian belum dibuka. Sila hubungi kami melalui WhatsApp.",
+  },
+  PAYMENT_UNAVAILABLE: {
+    status: 502,
+    message:
+      "Sistem pembayaran tidak dapat dihubungi. Tarikh anda tidak ditahan. Sila cuba sebentar lagi.",
+  },
   INTERNAL_ERROR: { status: 500, message: "Ralat dalaman. Sila cuba sebentar lagi." },
 } as const satisfies Record<string, { status: number; message: string }>;
 

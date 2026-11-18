@@ -18,6 +18,12 @@ export interface Env {
   ADMIN_EMAILS?: string;
   /** Local development and tests only: act as this admin without Access. */
   ACCESS_DEV_EMAIL?: string;
+  /** Secret: CHIP Collect API key. Without it (and CHIP_BRAND_ID) online booking is closed. */
+  CHIP_SECRET_KEY?: string;
+  /** CHIP brand id (not secret). */
+  CHIP_BRAND_ID?: string;
+  /** Optional pinned CHIP public key (PEM) for callback signatures; else fetched from CHIP. */
+  CHIP_PUBLIC_KEY?: string;
   DB?: D1Database;
   ASSETS?: Fetcher;
   /** Workers Rate Limiting binding: a cheap first line against bursts from one IP. */
@@ -28,6 +34,12 @@ export type AdminAuthConfig =
   | { mode: "access"; teamDomain: string; audience: string; adminEmails: ReadonlySet<string> }
   | { mode: "dev"; email: string };
 
+export interface ChipConfig {
+  secretKey: string;
+  brandId: string;
+  publicKeyPem: string | undefined;
+}
+
 export interface AppConfig {
   environment: Environment;
   /** Staging and production: strict checks apply (Turnstile hostname/action, no dev login). */
@@ -35,6 +47,10 @@ export interface AppConfig {
   turnstileSecretKey: string;
   phoneHashPepper: string;
   adminAuth: AdminAuthConfig;
+  /** Absent: online booking is closed (the site still works; leads still work). */
+  chip: ChipConfig | undefined;
+  /** Where operational alerts (payment mismatch, overdue) are emailed. */
+  alertEmails: readonly string[];
 }
 
 export class ConfigError extends Error {
@@ -81,6 +97,15 @@ const configSchema = z
       (value) => value === undefined || z.email().safeParse(value).success,
       "must be an email",
     ),
+    CHIP_SECRET_KEY: optionalText,
+    CHIP_BRAND_ID: optionalText.refine(
+      (value) => value === undefined || /^[A-Za-z0-9-]{1,100}$/.test(value),
+      "must be a CHIP brand id",
+    ),
+    CHIP_PUBLIC_KEY: optionalText.refine(
+      (value) => value === undefined || value.includes("PUBLIC KEY"),
+      "must be a PEM public key",
+    ),
   })
   .superRefine((value, context) => {
     const deployed = value.ENVIRONMENT === "staging" || value.ENVIRONMENT === "production";
@@ -94,6 +119,9 @@ const configSchema = z
       if (value.ACCESS_TEAM_DOMAIN === undefined) issue("ACCESS_TEAM_DOMAIN", "is required");
       if (value.ACCESS_AUD === undefined) issue("ACCESS_AUD", "is required");
       if (value.ADMIN_EMAILS === undefined) issue("ADMIN_EMAILS", "is required");
+    }
+    if ((value.CHIP_SECRET_KEY === undefined) !== (value.CHIP_BRAND_ID === undefined)) {
+      issue("CHIP_BRAND_ID", "CHIP_SECRET_KEY and CHIP_BRAND_ID must be set together");
     }
   });
 
@@ -110,6 +138,9 @@ export function loadConfig(env: Env): AppConfig {
     ACCESS_AUD: env.ACCESS_AUD,
     ADMIN_EMAILS: env.ADMIN_EMAILS,
     ACCESS_DEV_EMAIL: env.ACCESS_DEV_EMAIL,
+    CHIP_SECRET_KEY: env.CHIP_SECRET_KEY,
+    CHIP_BRAND_ID: env.CHIP_BRAND_ID,
+    CHIP_PUBLIC_KEY: env.CHIP_PUBLIC_KEY,
   });
   const problems = parsed.success
     ? []
@@ -141,5 +172,14 @@ export function loadConfig(env: Env): AppConfig {
     turnstileSecretKey: data.TURNSTILE_SECRET_KEY,
     phoneHashPepper: data.PHONE_HASH_PEPPER,
     adminAuth,
+    chip:
+      data.CHIP_SECRET_KEY !== undefined && data.CHIP_BRAND_ID !== undefined
+        ? {
+            secretKey: data.CHIP_SECRET_KEY,
+            brandId: data.CHIP_BRAND_ID,
+            publicKeyPem: data.CHIP_PUBLIC_KEY,
+          }
+        : undefined,
+    alertEmails: adminAuth.mode === "dev" ? [adminAuth.email] : [...adminAuth.adminEmails],
   };
 }

@@ -67,4 +67,5 @@ export const DEFAULT_SETTINGS: AllSettings = {
     whatsappE164: "+60174913169",
     email: "",
   },
+  retention: { photoDays: 30 },
 };

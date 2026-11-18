@@ -48,3 +48,11 @@ export function createHasher(pepper: string): Hasher {
     },
   };
 }
+
+/** Compares two strings in time that does not depend on where they differ. */
+export function constantTimeEqual(a: string, b: string): boolean {
+  const left = encoder.encode(a);
+  const right = encoder.encode(b);
+  if (left.byteLength !== right.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(left, right);
+}

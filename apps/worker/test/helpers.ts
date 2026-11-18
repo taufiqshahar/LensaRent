@@ -19,6 +19,8 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     turnstileSecretKey: "test-turnstile-secret",
     phoneHashPepper: "test-pepper-test-pepper-test-pepper",
     adminAuth: { mode: "dev", email: TEST_ADMIN },
+    chip: undefined,
+    alertEmails: [TEST_ADMIN],
     ...overrides,
   };
 }

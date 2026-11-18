@@ -23,7 +23,27 @@ describe("loadConfig", () => {
       turnstileSecretKey: "test-turnstile-secret",
       phoneHashPepper: "test-pepper-test-pepper-test-pepper",
       adminAuth: { mode: "dev", email: "admin@lensarent.test" },
+      chip: undefined,
+      alertEmails: ["admin@lensarent.test"],
     });
+  });
+
+  it("enables CHIP only with both the key and the brand id", () => {
+    expect(
+      loadConfig({ ...production, CHIP_SECRET_KEY: "SECRET-CHIP", CHIP_BRAND_ID: "brand-1" }),
+    ).toMatchObject({
+      chip: { secretKey: "SECRET-CHIP", brandId: "brand-1", publicKeyPem: undefined },
+      alertEmails: ["owner@example.com", "staff@example.com"],
+    });
+    expect(() => loadConfig({ ...production, CHIP_SECRET_KEY: "SECRET-CHIP" })).toThrow(
+      /CHIP_BRAND_ID CHIP_SECRET_KEY and CHIP_BRAND_ID must be set together/,
+    );
+    expect(() =>
+      loadConfig({ ...production, CHIP_SECRET_KEY: "x", CHIP_BRAND_ID: "y", CHIP_PUBLIC_KEY: "z" }),
+    ).toThrow(/CHIP_PUBLIC_KEY/);
+    expect(() => loadConfig({ ...production, CHIP_SECRET_KEY: "x", CHIP_BRAND_ID: "a b" })).toThrow(
+      /CHIP_BRAND_ID must be a CHIP brand id/,
+    );
   });
 
   it("accepts a deployed environment protected by Cloudflare Access", () => {

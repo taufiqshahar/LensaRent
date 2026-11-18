@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { BufferSettings } from "./duration";
 import { DEFAULT_SETTINGS } from "./defaultSettings";
 import {
+  ADMIN_EDITABLE_SETTINGS,
   SETTINGS_KEYS,
+  isAdminEditableSetting,
   actorTypeSchema,
   bookingStatusSchema,
   customerTierSchema,
@@ -37,6 +39,7 @@ describe("settings keys", () => {
         "cancellation",
         "policyVersions",
         "businessInfo",
+        "retention",
       ].sort(),
     );
   });
@@ -46,6 +49,14 @@ describe("settings keys", () => {
     expect(isSettingsKey("toString")).toBe(false);
     expect(isSettingsKey("__proto__")).toBe(false);
     expect(isSettingsKey("secrets")).toBe(false);
+  });
+});
+
+describe("admin-editable settings", () => {
+  it("are a subset of the settings keys", () => {
+    for (const key of ADMIN_EDITABLE_SETTINGS) expect(SETTINGS_KEYS).toContain(key);
+    expect(isAdminEditableSetting("handoverSlots")).toBe(true);
+    expect(isAdminEditableSetting("pricing")).toBe(false);
   });
 });
 

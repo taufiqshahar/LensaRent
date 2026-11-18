@@ -21,6 +21,10 @@ export const RATE_LIMIT_RULES = {
   leadPerIp: { name: "lead-ip", limit: 10, windowSeconds: 3600 },
   /** Interest form submissions for one phone number. */
   leadPerPhone: { name: "lead-phone", limit: 3, windowSeconds: 86_400 },
+  /** Booking holds from one IP (master prompt §12: 5 per 10 minutes). */
+  holdPerIp: { name: "hold-ip", limit: 5, windowSeconds: 600 },
+  /** Booking holds for one phone number. */
+  holdPerPhone: { name: "hold-phone", limit: 5, windowSeconds: 600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export interface RateLimitResult {

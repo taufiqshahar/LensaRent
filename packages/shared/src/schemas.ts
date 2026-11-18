@@ -208,6 +208,8 @@ export const settingsSchemas = {
   cancellation: cancellationSchema,
   policyVersions: policyVersionsSchema,
   businessInfo: businessInfoSchema,
+  /** How long handover photos are kept once the deposit is settled without a dispute. */
+  retention: z.object({ photoDays: z.int().min(1).max(365) }),
 } as const;
 
 export type SettingsKey = keyof typeof settingsSchemas;
@@ -215,6 +217,25 @@ export type SettingsValue<K extends SettingsKey> = z.infer<(typeof settingsSchem
 export type AllSettings = { [K in SettingsKey]: SettingsValue<K> };
 
 export const SETTINGS_KEYS = Object.keys(settingsSchemas) as SettingsKey[];
+
+/**
+ * Keys an admin may change in the panel. Prices, deposit, add-ons, locations and policies
+ * appear in the published pages and legal text, so they change only with a deploy
+ * (docs/DECISIONS.md, ADR-020).
+ */
+export const ADMIN_EDITABLE_SETTINGS = [
+  "handoverSlots",
+  "peakPeriods",
+  "holdMinutes",
+  "minLeadHours",
+  "buffer",
+  "retention",
+] as const satisfies readonly SettingsKey[];
+export type AdminEditableSetting = (typeof ADMIN_EDITABLE_SETTINGS)[number];
+
+export function isAdminEditableSetting(value: string): value is AdminEditableSetting {
+  return (ADMIN_EDITABLE_SETTINGS as readonly string[]).includes(value);
+}
 
 export function isSettingsKey(value: string): value is SettingsKey {
   return Object.hasOwn(settingsSchemas, value);
